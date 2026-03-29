@@ -31,7 +31,7 @@ function getCurrentSeason() {
 export default function Home() {
   const [imageUrl, setImageUrl] = useState<string | null>(null)
   const [imageFile, setImageFile] = useState<File | null>(null)
-  const [location, setLocation] = useState<"室内" | "屋外">("室内")
+  const [location, setLocation] = useState<string>("室内")
   const [loading, setLoading] = useState(false)
   const [result, setResult] = useState<DiagnoseResult | null>(null)
   const [needsRetake, setNeedsRetake] = useState(false)
@@ -57,11 +57,7 @@ export default function Home() {
       formData.append("mimeType", imageFile.type)
       formData.append("season", getCurrentSeason())
       formData.append("location", location)
-
-      const res = await fetch("/api/diagnose", {
-        method: "POST",
-        body: formData,
-      })
+      const res = await fetch("/api/diagnose", { method: "POST", body: formData })
       const data = await res.json()
       if (data.needsRetake) {
         setNeedsRetake(true)
@@ -70,7 +66,7 @@ export default function Home() {
       } else {
         setError(data.error ?? "診断に失敗しました")
       }
-    } catch (e) {
+    } catch {
       setError("通信エラーが発生しました")
     } finally {
       setLoading(false)
@@ -90,13 +86,7 @@ export default function Home() {
           🌿 植物診断
         </h1>
 
-        {/* 画像アップロード */}
-        <label style={{
-          display: "block", width: "100%", height: 220, borderRadius: 16,
-          background: "#E8F5EE", border: "2px dashed #9FE1CB",
-          display: "flex", alignItems: "center", justifyContent: "center",
-          cursor: "pointer", overflow: "hidden", marginBottom: 12,
-        }}>
+        <label style={{ display: "flex", flexDirection: "column", width: "100%", height: 220, borderRadius: 16, background: "#E8F5EE", border: "2px dashed #9FE1CB", alignItems: "center", justifyContent: "center", cursor: "pointer", overflow: "hidden", marginBottom: 12 }}>
           {imageUrl
             ? <img src={imageUrl} alt="plant" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
             : <span style={{ color: "#2D8F64", fontSize: 14 }}>📷 クリックして写真を選択</span>
@@ -104,44 +94,27 @@ export default function Home() {
           <input type="file" accept="image/*" onChange={handleFileChange} style={{ display: "none" }} />
         </label>
 
-        {/* 撮影場所 */}
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: "#fff", borderRadius: 12, padding: "12px 16px", marginBottom: 16, border: "0.5px solid #ddd" }}>
           <span style={{ fontSize: 14, color: "#444" }}>撮影場所：{location}</span>
-          <button
-            onClick={() => setLocation(location === "室内" ? "屋外" : "室内")}
-            style={{ background: location === "屋外" ? "#1D9E75" : "#ccc", border: "none", borderRadius: 20, width: 48, height: 26, cursor: "pointer", transition: "background 0.2s" }}
-          />
+          <button onClick={() => setLocation(location === "室内" ? "屋外" : "室内")} style={{ background: location === "屋外" ? "#1D9E75" : "#ccc", border: "none", borderRadius: 20, width: 48, height: 26, cursor: "pointer" }} />
         </div>
 
-        {/* 診断ボタン */}
-        <button
-          onClick={handleDiagnose}
-          disabled={!imageFile || loading}
-          style={{
-            width: "100%", padding: 16, borderRadius: 14, border: "none",
-            background: !imageFile || loading ? "#9FE1CB" : "#1D9E75",
-            color: "#fff", fontSize: 16, fontWeight: 700, cursor: !imageFile || loading ? "not-allowed" : "pointer",
-            marginBottom: 24,
-          }}
-        >
+        <button onClick={handleDiagnose} disabled={!imageFile || loading} style={{ width: "100%", padding: 16, borderRadius: 14, border: "none", background: !imageFile || loading ? "#9FE1CB" : "#1D9E75", color: "#fff", fontSize: 16, fontWeight: 700, cursor: !imageFile || loading ? "not-allowed" : "pointer", marginBottom: 24 }}>
           {loading ? "診断中..." : "🔍 診断する"}
         </button>
 
-        {/* エラー */}
         {error && (
           <div style={{ background: "#FDECEA", borderRadius: 10, padding: 12, marginBottom: 16 }}>
             <p style={{ color: "#A32D2D", margin: 0, fontSize: 14 }}>{error}</p>
           </div>
         )}
 
-        {/* 再撮影 */}
         {needsRetake && (
           <div style={{ background: "#FFF3CC", borderRadius: 10, padding: 12, marginBottom: 16 }}>
-            <p style={{ color: "#8A5C00", margin: 0, fontSize: 14 }}>⚠ 別の角度や明るい場所で再度お試しください。</p>
+            <p style={{ color: "#8A5C00", margin: 0, fontSize: 14 }}>別の角度や明るい場所で再度お試しください。</p>
           </div>
         )}
 
-        {/* 診断結果 */}
         {result && (
           <div style={{ background: "#fff", borderRadius: 16, padding: 20, border: "0.5px solid #ddd" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12 }}>
@@ -158,7 +131,6 @@ export default function Home() {
             <div style={{ background: conditionColor(result.condition.overall) + "22", borderRadius: 8, padding: 10, marginBottom: 12 }}>
               <p style={{ color: conditionColor(result.condition.overall), fontWeight: 600, margin: 0, fontSize: 14 }}>
                 {result.condition.overall === "良好" ? "✓" : "⚠"} {result.condition.overall}
-                {result.condition.disease ? `  病気: ${result.condition.disease}` : ""}
               </p>
             </div>
 
