@@ -12,7 +12,7 @@ const SYSTEM_PROMPT = `You are a plant expert AI. Analyze the plant photo and re
   "confidence": integer 0 to 100,
   "family": "family name in Japanese",
   "condition": {
-    "overall": "one of: \u826f\u597d or \u6ce8\u610f or \u8981\u51e6\u7f6e",
+    "overall": "one of: 良好 or 注意 or 要処置",
     "issues": [],
     "disease": null
   },
@@ -22,7 +22,8 @@ const SYSTEM_PROMPT = `You are a plant expert AI. Analyze the plant photo and re
     "fertilizer": "fertilizer advice in Japanese",
     "immediate_action": null
   },
-  "season_tip": "seasonal tip in Japanese"
+  "season_tip": "seasonal tip in Japanese",
+  "recipe": "If this is a herb, vegetable, or edible plant, suggest 1-2 recommended ways to eat or cook it in Japanese. If not edible, return null"
 }`
 
 export async function POST(req: NextRequest) {
@@ -42,12 +43,7 @@ export async function POST(req: NextRequest) {
     const base64 = Buffer.from(arrayBuffer).toString("base64")
 
     const result = await model.generateContent([
-      {
-        inlineData: {
-          mimeType: mimeType,
-          data: base64,
-        },
-      },
+      { inlineData: { mimeType: mimeType, data: base64 } },
       `${SYSTEM_PROMPT}\n\nDiagnose this plant. Season: ${season}, Location: ${location}`,
     ])
 
@@ -59,26 +55,20 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({
         needsRetake: true,
         confidence: diagnosis.confidence,
-        message: "\u5225\u306e\u89d2\u5ea6\u3084\u660e\u308b\u3044\u5834\u6240\u3067\u518d\u64ae\u5f71\u3057\u3066\u304f\u3060\u3055\u3044\u3002",
+        message: "別の角度や明るい場所で再撮影してください。",
       })
     }
-
-    let imageUrl = null
 
     if (userId) {
       const imageBuffer = Buffer.from(arrayBuffer)
       const fileName = `${userId}/${Date.now()}.jpg`
       const { data: uploadData, error: uploadError } = await supabaseAdmin.storage
         .from("plant-images")
-        .upload(fileName, imageBuffer, {
-          contentType: mimeType,
-          upsert: false,
-        })
+        .upload(fileName, imageBuffer, { contentType: mimeType, upsert: false })
 
+      let imageUrl = null
       if (!uploadError && uploadData) {
-        const { data: urlData } = supabaseAdmin.storage
-          .from("plant-images")
-          .getPublicUrl(fileName)
+        const { data: urlData } = supabaseAdmin.storage.from("plant-images").getPublicUrl(fileName)
         imageUrl = urlData.publicUrl
       }
 

@@ -18,6 +18,7 @@ interface DiagnoseResult {
     immediate_action: string | null
   }
   season_tip: string
+  recipe: string | null
 }
 
 function getCurrentSeason() {
@@ -157,9 +158,15 @@ export default function Home() {
               ))}
             </div>
 
-            <div style={{ background: "#EEF8F3", borderRadius: 8, padding: 10 }}>
+            <div style={{ background: "#EEF8F3", borderRadius: 8, padding: 10, marginBottom: 8 }}>
               <p style={{ fontSize: 13, color: "#1D6A4A", margin: 0, lineHeight: 1.6 }}>🍃 {result.season_tip}</p>
             </div>
+
+            {result.recipe && (
+              <div style={{ background: "#FFF8E7", borderRadius: 8, padding: 10 }}>
+                <p style={{ fontSize: 13, color: "#8A5C00", margin: 0, lineHeight: 1.6 }}>🍽️ {result.recipe}</p>
+              </div>
+            )}
           </div>
         )}
       </div>
