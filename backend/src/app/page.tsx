@@ -29,6 +29,25 @@ function getCurrentSeason() {
   return "冬"
 }
 
+async function compressImage(file: File, maxWidth = 800, quality = 0.7): Promise<File> {
+  return new Promise((resolve) => {
+    const img = new Image()
+    img.onload = () => {
+      const canvas = document.createElement("canvas")
+      const ratio = Math.min(maxWidth / img.width, maxWidth / img.height, 1)
+      canvas.width = img.width * ratio
+      canvas.height = img.height * ratio
+      const ctx = canvas.getContext("2d")!
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
+      canvas.toBlob(blob => {
+        if (blob) resolve(new File([blob], file.name, { type: "image/jpeg" }))
+        else resolve(file)
+      }, "image/jpeg", quality)
+    }
+    img.src = URL.createObjectURL(file)
+  })
+}
+
 const PHOTO_TIPS = [
   { icon: "🌿", label: "全体像", desc: "植物全体が入るように" },
   { icon: "🍃", label: "葉（表面・裏面）", desc: "色・模様・病変を確認" },
@@ -47,11 +66,12 @@ export default function Home() {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const cameraInputRef = useRef<HTMLInputElement>(null)
 
-  const addImages = (files: FileList | null) => {
+  const addImages = async (files: FileList | null) => {
     if (!files) return
     const remaining = 5 - images.length
     const newFiles = Array.from(files).slice(0, remaining)
-    const newImages = newFiles.map(file => ({ url: URL.createObjectURL(file), file }))
+    const compressed = await Promise.all(newFiles.map(f => compressImage(f)))
+    const newImages = compressed.map((file, i) => ({ url: URL.createObjectURL(newFiles[i]), file }))
     setImages(prev => {
       const updated = [...prev, ...newImages]
       setSelectedIndex(updated.length - 1)
@@ -79,7 +99,7 @@ export default function Home() {
       const formData = new FormData()
       images.forEach((img, i) => {
         formData.append(`image_${i}`, img.file)
-        formData.append(`mimeType_${i}`, img.file.type)
+        formData.append(`mimeType_${i}`, "image/jpeg")
       })
       formData.append("imageCount", String(images.length))
       formData.append("season", getCurrentSeason())
@@ -110,15 +130,16 @@ export default function Home() {
     <main style={{ minHeight: "100vh", background: "#F8FBF8", padding: "24px 16px 48px" }}>
       <div style={{ maxWidth: 480, margin: "0 auto" }}>
 
-        {/* ヘッダー */}
         <div style={{ textAlign: "center", marginBottom: 28 }}>
           <h1 style={{ fontSize: 28, fontWeight: 800, color: "#1D3A2A", margin: "0 0 6px" }}>🌿 植物診断</h1>
           <p style={{ fontSize: 13, color: "#666", margin: 0 }}>写真を撮るだけで植物の状態とケア方法がわかります</p>
         </div>
 
-        {/* 精度アップのヒント */}
         <div style={{ background: "#EEF8F3", borderRadius: 14, padding: "14px 16px", marginBottom: 20, border: "1px solid #C5E8D8" }}>
-          <p style={{ fontSize: 13, fontWeight: 700, color: "#1D6A4A", margin: "0 0 10px" }}>📸 複数の写真で診断精度がアップします</p>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+            <p style={{ fontSize: 13, fontWeight: 700, color: "#1D6A4A", margin: 0 }}>📸 複数の写真で診断精度がアップします</p>
+            <span style={{ fontSize: 11, color: "#fff", background: "#1D9E75", borderRadius: 20, padding: "2px 10px", fontWeight: 600, whiteSpace: "nowrap" }}>最大5枚</span>
+          </div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
             {PHOTO_TIPS.map(tip => (
               <div key={tip.label} style={{ display: "flex", alignItems: "flex-start", gap: 6 }}>
@@ -132,7 +153,6 @@ export default function Home() {
           </div>
         </div>
 
-        {/* メイン画像エリア */}
         <div style={{ width: "100%", height: 240, borderRadius: 16, background: "#E8F5EE", border: "2px dashed #9FE1CB", overflow: "hidden", marginBottom: 10, position: "relative", display: "flex", alignItems: "center", justifyContent: "center" }}>
           {images.length > 0
             ? <>
@@ -151,7 +171,6 @@ export default function Home() {
           }
         </div>
 
-        {/* サムネイル */}
         {images.length > 0 && (
           <div style={{ display: "flex", gap: 8, marginBottom: 12, overflowX: "auto", paddingBottom: 4 }}>
             {images.map((img, i) => (
@@ -159,10 +178,14 @@ export default function Home() {
                 <img src={img.url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
               </div>
             ))}
+            {images.length < 5 && (
+              <div onClick={() => fileInputRef.current?.click()} style={{ width: 60, height: 60, borderRadius: 10, border: "2px dashed #9FE1CB", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0, background: "#E8F5EE" }}>
+                <span style={{ fontSize: 22, color: "#1D9E75" }}>+</span>
+              </div>
+            )}
           </div>
         )}
 
-        {/* 写真追加ボタン */}
         {images.length < 5
           ? (
             <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
@@ -178,27 +201,25 @@ export default function Home() {
           )
           : (
             <div style={{ background: "#FFF3CC", borderRadius: 10, padding: "8px 12px", marginBottom: 12, textAlign: "center" }}>
-              <p style={{ fontSize: 12, color: "#8A5C00", margin: 0 }}>写真は最大5枚まで追加できます</p>
+              <p style={{ fontSize: 12, color: "#8A5C00", margin: 0 }}>✓ 写真が5枚揃いました。このまま診断できます。</p>
             </div>
           )
         }
 
         {images.length > 0 && (
           <p style={{ fontSize: 12, color: "#888", textAlign: "center", marginBottom: 12 }}>
-            {images.length}枚の写真をまとめて解析します
+            {images.length}枚の写真をまとめて解析します（残り{5 - images.length}枚追加可）
           </p>
         )}
 
-        {/* 撮影場所 */}
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: "#fff", borderRadius: 12, padding: "12px 16px", marginBottom: 16, border: "0.5px solid #ddd" }}>
           <div>
             <p style={{ fontSize: 14, color: "#444", margin: 0 }}>撮影場所：<strong>{location}</strong></p>
             <p style={{ fontSize: 11, color: "#aaa", margin: 0 }}>日照アドバイスに影響します</p>
           </div>
-          <button onClick={() => setLocation(location === "室内" ? "屋外" : "室内")} style={{ background: location === "屋外" ? "#1D9E75" : "#ccc", border: "none", borderRadius: 20, width: 52, height: 28, cursor: "pointer", transition: "background 0.2s", flexShrink: 0 }} />
+          <button onClick={() => setLocation(location === "室内" ? "屋外" : "室内")} style={{ background: location === "屋外" ? "#1D9E75" : "#ccc", border: "none", borderRadius: 20, width: 52, height: 28, cursor: "pointer", flexShrink: 0 }} />
         </div>
 
-        {/* 診断ボタン */}
         <button onClick={handleDiagnose} disabled={images.length === 0 || loading} style={{ width: "100%", padding: 16, borderRadius: 14, border: "none", background: images.length === 0 || loading ? "#9FE1CB" : "#1D9E75", color: "#fff", fontSize: 16, fontWeight: 700, cursor: images.length === 0 || loading ? "not-allowed" : "pointer", marginBottom: 24 }}>
           {loading ? "AIが診断中..." : images.length === 0 ? "写真を追加してください" : `🔍 ${images.length}枚の写真で診断する`}
         </button>
