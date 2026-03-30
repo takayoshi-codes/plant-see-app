@@ -20,6 +20,7 @@ interface DiagnoseResult {
   }
   season_tip: string
   recipe: string | null
+  recommended_products: { name: string; keyword: string }[]
 }
 
 interface ChatMessage {
@@ -85,6 +86,11 @@ export default function Home() {
   const [images, setImages] = useState<{ url: string; file: File }[]>([])
   const [selectedIndex, setSelectedIndex] = useState(0)
   const [location, setLocation] = useState<string>("室内")
+  const [temperature, setTemperature] = useState("")
+  const [humidity, setHumidity] = useState("")
+  const [lastWatered, setLastWatered] = useState("")
+  const [soilCondition, setSoilCondition] = useState("")
+  const [showEnvForm, setShowEnvForm] = useState(false)
   const [loading, setLoading] = useState(false)
   const [result, setResult] = useState<DiagnoseResult | null>(null)
   const [diagnosedAt, setDiagnosedAt] = useState<Date | null>(null)
@@ -118,7 +124,11 @@ export default function Home() {
   const removeImage = (index: number) => {
     setImages(prev => {
       const updated = prev.filter((_, i) => i !== index)
-      setSelectedIndex(Math.min(index === 0 ? 0 : index - 1, updated.length - 1))
+      if (updated.length === 0) {
+        setSelectedIndex(0)
+      } else {
+        setSelectedIndex(Math.min(index === 0 ? 0 : index - 1, updated.length - 1))
+      }
       return updated
     })
     setResult(null)
@@ -139,6 +149,10 @@ export default function Home() {
       formData.append("imageCount", String(images.length))
       formData.append("season", getCurrentSeason())
       formData.append("location", location)
+      if (temperature) formData.append("temperature", temperature)
+      if (humidity) formData.append("humidity", humidity)
+      if (lastWatered) formData.append("lastWatered", lastWatered)
+      if (soilCondition) formData.append("soilCondition", soilCondition)
       const res = await fetch("/api/diagnose", { method: "POST", body: formData })
       const data = await res.json()
       if (data.needsRetake) {
@@ -205,6 +219,20 @@ export default function Home() {
     return "#A32D2D"
   }
 
+  const amazonUrl = (keyword: string) =>
+    `https://www.amazon.co.jp/s?k=${encodeURIComponent(keyword)}`
+
+  const inputStyle = {
+    width: "100%",
+    padding: "10px 12px",
+    borderRadius: 10,
+    border: "1px solid #ddd",
+    fontSize: 13,
+    outline: "none",
+    boxSizing: "border-box" as const,
+    background: "#fff",
+  }
+
   return (
     <main style={{ minHeight: "100vh", background: "#F8FBF8", padding: "24px 16px 48px" }}>
       <div style={{ maxWidth: 480, margin: "0 auto" }}>
@@ -214,6 +242,7 @@ export default function Home() {
           <p style={{ fontSize: 13, color: "#666", margin: 0 }}>写真を撮るだけで植物の状態とケア方法がわかります</p>
         </div>
 
+        {/* 精度アップヒント */}
         <div style={{ background: "#EEF8F3", borderRadius: 14, padding: "14px 16px", marginBottom: 20, border: "1px solid #C5E8D8" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
             <p style={{ fontSize: 13, fontWeight: 700, color: "#1D6A4A", margin: 0 }}>📸 複数の写真で診断精度がアップします</p>
@@ -232,39 +261,55 @@ export default function Home() {
           </div>
         </div>
 
+        {/* メイン画像エリア */}
         <div style={{ width: "100%", height: 240, borderRadius: 16, background: "#E8F5EE", border: "2px dashed #9FE1CB", overflow: "hidden", marginBottom: 10, position: "relative", display: "flex", alignItems: "center", justifyContent: "center" }}>
           {images.length > 0
             ? <>
                 <img src={images[selectedIndex].url} alt="plant" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-                <button onClick={() => removeImage(selectedIndex)} style={{ position: "absolute", top: 8, right: 8, background: "rgba(0,0,0,0.5)", border: "none", borderRadius: "50%", width: 28, height: 28, color: "#fff", cursor: "pointer", fontSize: 14 }}>×</button>
-                <div style={{ position: "absolute", bottom: 8, right: 8, background: "rgba(0,0,0,0.5)", borderRadius: 12, padding: "2px 10px" }}>
+                <button
+                  onClick={() => removeImage(selectedIndex)}
+                  style={{ position: "absolute", top: 10, right: 10, background: "rgba(0,0,0,0.6)", border: "2px solid rgba(255,255,255,0.8)", borderRadius: "50%", width: 32, height: 32, color: "#fff", cursor: "pointer", fontSize: 16, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, lineHeight: 1 }}
+                >
+                  ×
+                </button>
+                <div style={{ position: "absolute", bottom: 10, right: 10, background: "rgba(0,0,0,0.55)", borderRadius: 20, padding: "3px 12px" }}>
                   <span style={{ color: "#fff", fontSize: 12 }}>{selectedIndex + 1} / {images.length}</span>
                 </div>
               </>
             : (
               <div style={{ textAlign: "center" }}>
-                <p style={{ fontSize: 32, margin: "0 0 8px" }}>📷</p>
+                <p style={{ fontSize: 36, margin: "0 0 8px" }}>📷</p>
                 <p style={{ color: "#2D8F64", fontSize: 14, margin: 0 }}>下のボタンから写真を追加</p>
               </div>
             )
           }
         </div>
 
+        {/* サムネイル */}
         {images.length > 0 && (
           <div style={{ display: "flex", gap: 8, marginBottom: 12, overflowX: "auto", paddingBottom: 4 }}>
             {images.map((img, i) => (
-              <div key={i} onClick={() => setSelectedIndex(i)} style={{ width: 60, height: 60, borderRadius: 10, overflow: "hidden", border: i === selectedIndex ? "2.5px solid #1D9E75" : "2px solid #ddd", cursor: "pointer", flexShrink: 0 }}>
-                <img src={img.url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+              <div key={i} style={{ position: "relative", flexShrink: 0 }}>
+                <div onClick={() => setSelectedIndex(i)} style={{ width: 64, height: 64, borderRadius: 10, overflow: "hidden", border: i === selectedIndex ? "2.5px solid #1D9E75" : "2px solid #ddd", cursor: "pointer" }}>
+                  <img src={img.url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                </div>
+                <button
+                  onClick={() => removeImage(i)}
+                  style={{ position: "absolute", top: -6, right: -6, background: "#555", border: "1.5px solid #fff", borderRadius: "50%", width: 20, height: 20, color: "#fff", cursor: "pointer", fontSize: 11, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, lineHeight: 1, padding: 0 }}
+                >
+                  ×
+                </button>
               </div>
             ))}
             {images.length < 5 && (
-              <div onClick={() => fileInputRef.current?.click()} style={{ width: 60, height: 60, borderRadius: 10, border: "2px dashed #9FE1CB", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0, background: "#E8F5EE" }}>
-                <span style={{ fontSize: 22, color: "#1D9E75" }}>+</span>
+              <div onClick={() => fileInputRef.current?.click()} style={{ width: 64, height: 64, borderRadius: 10, border: "2px dashed #9FE1CB", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0, background: "#E8F5EE" }}>
+                <span style={{ fontSize: 24, color: "#1D9E75" }}>+</span>
               </div>
             )}
           </div>
         )}
 
+        {/* 写真追加ボタン */}
         {images.length < 5
           ? (
             <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
@@ -291,7 +336,8 @@ export default function Home() {
           </p>
         )}
 
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: "#fff", borderRadius: 12, padding: "12px 16px", marginBottom: 16, border: "0.5px solid #ddd" }}>
+        {/* 撮影場所 */}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: "#fff", borderRadius: 12, padding: "12px 16px", marginBottom: 12, border: "0.5px solid #ddd" }}>
           <div>
             <p style={{ fontSize: 14, color: "#444", margin: 0 }}>撮影場所：<strong>{location}</strong></p>
             <p style={{ fontSize: 11, color: "#aaa", margin: 0 }}>日照アドバイスに影響します</p>
@@ -299,6 +345,67 @@ export default function Home() {
           <button onClick={() => setLocation(location === "室内" ? "屋外" : "室内")} style={{ background: location === "屋外" ? "#1D9E75" : "#ccc", border: "none", borderRadius: 20, width: 52, height: 28, cursor: "pointer", flexShrink: 0 }} />
         </div>
 
+        {/* 環境情報（任意） */}
+        <div style={{ background: "#fff", borderRadius: 12, border: "0.5px solid #ddd", marginBottom: 16, overflow: "hidden" }}>
+          <button
+            onClick={() => setShowEnvForm(!showEnvForm)}
+            style={{ width: "100%", padding: "12px 16px", background: "none", border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "space-between" }}
+          >
+            <div style={{ textAlign: "left" }}>
+              <p style={{ fontSize: 14, color: "#444", margin: 0, fontWeight: 600 }}>🌡️ 環境情報を入力する（任意）</p>
+              <p style={{ fontSize: 11, color: "#aaa", margin: 0 }}>入力するとより精度の高い診断ができます</p>
+            </div>
+            <span style={{ fontSize: 12, color: "#888" }}>{showEnvForm ? "▲" : "▼"}</span>
+          </button>
+
+          {showEnvForm && (
+            <div style={{ padding: "0 16px 16px", display: "flex", flexDirection: "column", gap: 10 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                <div>
+                  <p style={{ fontSize: 12, color: "#666", margin: "0 0 4px", fontWeight: 600 }}>気温（℃）</p>
+                  <input
+                    type="number"
+                    value={temperature}
+                    onChange={e => setTemperature(e.target.value)}
+                    placeholder="例：25"
+                    style={inputStyle}
+                  />
+                </div>
+                <div>
+                  <p style={{ fontSize: 12, color: "#666", margin: "0 0 4px", fontWeight: 600 }}>湿度（%）</p>
+                  <input
+                    type="number"
+                    value={humidity}
+                    onChange={e => setHumidity(e.target.value)}
+                    placeholder="例：60"
+                    style={inputStyle}
+                  />
+                </div>
+              </div>
+              <div>
+                <p style={{ fontSize: 12, color: "#666", margin: "0 0 4px", fontWeight: 600 }}>最後に水をやった日</p>
+                <input
+                  type="date"
+                  value={lastWatered}
+                  onChange={e => setLastWatered(e.target.value)}
+                  style={inputStyle}
+                />
+              </div>
+              <div>
+                <p style={{ fontSize: 12, color: "#666", margin: "0 0 4px", fontWeight: 600 }}>土の状態</p>
+                <select value={soilCondition} onChange={e => setSoilCondition(e.target.value)} style={inputStyle}>
+                  <option value="">選択してください</option>
+                  <option value="乾燥している">乾燥している</option>
+                  <option value="適度に湿っている">適度に湿っている</option>
+                  <option value="かなり湿っている">かなり湿っている</option>
+                  <option value="水が溜まっている">水が溜まっている</option>
+                </select>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* 診断ボタン */}
         <button onClick={handleDiagnose} disabled={images.length === 0 || loading} style={{ width: "100%", padding: 16, borderRadius: 14, border: "none", background: images.length === 0 || loading ? "#9FE1CB" : "#1D9E75", color: "#fff", fontSize: 16, fontWeight: 700, cursor: images.length === 0 || loading ? "not-allowed" : "pointer", marginBottom: 24 }}>
           {loading ? "AIが診断中..." : images.length === 0 ? "写真を追加してください" : `🔍 ${images.length}枚の写真で診断する`}
         </button>
@@ -319,7 +426,6 @@ export default function Home() {
           <>
             <div ref={resultRef} style={{ background: "#fff", borderRadius: 16, padding: 20, border: "0.5px solid #ddd", marginBottom: 16 }}>
 
-              {/* 診断日時 */}
               {diagnosedAt && (
                 <p style={{ fontSize: 11, color: "#aaa", margin: "0 0 12px", textAlign: "right" }}>
                   診断日時：{formatDateTimeDisplay(diagnosedAt)}
@@ -337,7 +443,6 @@ export default function Home() {
                 </div>
               </div>
 
-              {/* ステータス＋状態説明 */}
               <div style={{ background: conditionColor(result.condition.overall) + "18", borderRadius: 10, padding: "12px 14px", marginBottom: 12, borderLeft: `4px solid ${conditionColor(result.condition.overall)}` }}>
                 <p style={{ color: conditionColor(result.condition.overall), fontWeight: 700, margin: "0 0 6px", fontSize: 15 }}>
                   {result.condition.overall === "良好" ? "✓ 良好" : result.condition.overall === "注意" ? "⚠ 注意" : "❗ 要処置"}
@@ -393,7 +498,32 @@ export default function Home() {
               )}
             </div>
 
-            {/* PDF保存ボタン */}
+            {/* おすすめ商品 */}
+            {result.recommended_products && result.recommended_products.length > 0 && (
+              <div style={{ background: "#fff", borderRadius: 16, padding: 20, border: "0.5px solid #ddd", marginBottom: 16 }}>
+                <p style={{ fontSize: 14, fontWeight: 700, color: "#333", margin: "0 0 4px" }}>🛒 おすすめ商品</p>
+                <p style={{ fontSize: 12, color: "#888", margin: "0 0 14px" }}>診断結果に基づいてAmazonで検索できます</p>
+                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  {result.recommended_products.map((product, i) => (
+                    
+                      key={i}
+                      href={amazonUrl(product.keyword)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 14px", background: "#FFF8E7", borderRadius: 10, border: "1px solid #F0D9A0", textDecoration: "none" }}
+                    >
+                      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                        <span style={{ fontSize: 24 }}>📦</span>
+                        <p style={{ fontSize: 13, color: "#333", margin: 0, fontWeight: 600 }}>{product.name}</p>
+                      </div>
+                      <span style={{ fontSize: 12, color: "#E47911", fontWeight: 600, whiteSpace: "nowrap", marginLeft: 8 }}>Amazon →</span>
+                    </a>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* PDF保存 */}
             <button onClick={handleSavePdf} disabled={savingPdf} style={{ width: "100%", padding: 14, borderRadius: 12, border: "1px solid #ddd", background: "#fff", color: "#555", fontSize: 14, fontWeight: 600, cursor: savingPdf ? "not-allowed" : "pointer", marginBottom: 24 }}>
               {savingPdf ? "PDFを生成中..." : "📄 診断結果をPDFで保存"}
             </button>
