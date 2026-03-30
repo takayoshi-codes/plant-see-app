@@ -8,6 +8,7 @@ interface DiagnoseResult {
   family: string
   condition: {
     overall: string
+    summary: string
     issues: string[]
     disease: string | null
   }
@@ -32,6 +33,26 @@ function getCurrentSeason() {
   if (month >= 6 && month <= 8) return "夏"
   if (month >= 9 && month <= 11) return "秋"
   return "冬"
+}
+
+function formatDateTime(date: Date) {
+  const y = date.getFullYear()
+  const mo = String(date.getMonth() + 1).padStart(2, "0")
+  const d = String(date.getDate()).padStart(2, "0")
+  const h = String(date.getHours()).padStart(2, "0")
+  const mi = String(date.getMinutes()).padStart(2, "0")
+  const s = String(date.getSeconds()).padStart(2, "0")
+  return `${y}${mo}${d}_${h}${mi}${s}`
+}
+
+function formatDateTimeDisplay(date: Date) {
+  const y = date.getFullYear()
+  const mo = String(date.getMonth() + 1).padStart(2, "0")
+  const d = String(date.getDate()).padStart(2, "0")
+  const h = String(date.getHours()).padStart(2, "0")
+  const mi = String(date.getMinutes()).padStart(2, "0")
+  const s = String(date.getSeconds()).padStart(2, "0")
+  return `${y}年${mo}月${d}日 ${h}:${mi}:${s}`
 }
 
 async function compressImage(file: File, maxWidth = 800, quality = 0.7): Promise<File> {
@@ -66,6 +87,7 @@ export default function Home() {
   const [location, setLocation] = useState<string>("室内")
   const [loading, setLoading] = useState(false)
   const [result, setResult] = useState<DiagnoseResult | null>(null)
+  const [diagnosedAt, setDiagnosedAt] = useState<Date | null>(null)
   const [needsRetake, setNeedsRetake] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([])
@@ -123,6 +145,7 @@ export default function Home() {
         setNeedsRetake(true)
       } else if (data.result) {
         setResult(data.result)
+        setDiagnosedAt(new Date())
       } else {
         setError(data.error ?? "診断に失敗しました")
       }
@@ -144,11 +167,7 @@ export default function Home() {
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          question: userMessage,
-          diagnosis: result,
-          history: chatMessages,
-        }),
+        body: JSON.stringify({ question: userMessage, diagnosis: result, history: chatMessages }),
       })
       const data = await res.json()
       setChatMessages([...newMessages, { role: "assistant", content: data.answer }])
@@ -171,7 +190,8 @@ export default function Home() {
       const pdfWidth = pdf.internal.pageSize.getWidth()
       const pdfHeight = (canvas.height * pdfWidth) / canvas.width
       pdf.addImage(imgData, "PNG", 0, 0, pdfWidth, pdfHeight)
-      pdf.save(`${result.plant_name}_診断結果.pdf`)
+      const dateStr = formatDateTime(diagnosedAt ?? new Date())
+      pdf.save(`${result.plant_name}_診断結果_${dateStr}.pdf`)
     } catch {
       alert("PDF保存に失敗しました")
     } finally {
@@ -298,6 +318,14 @@ export default function Home() {
         {result && (
           <>
             <div ref={resultRef} style={{ background: "#fff", borderRadius: 16, padding: 20, border: "0.5px solid #ddd", marginBottom: 16 }}>
+
+              {/* 診断日時 */}
+              {diagnosedAt && (
+                <p style={{ fontSize: 11, color: "#aaa", margin: "0 0 12px", textAlign: "right" }}>
+                  診断日時：{formatDateTimeDisplay(diagnosedAt)}
+                </p>
+              )}
+
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12 }}>
                 <div>
                   <p style={{ fontSize: 22, fontWeight: 700, color: "#1D3A2A", margin: 0 }}>{result.plant_name}</p>
@@ -309,12 +337,16 @@ export default function Home() {
                 </div>
               </div>
 
-              <div style={{ background: conditionColor(result.condition.overall) + "22", borderRadius: 8, padding: 10, marginBottom: 12 }}>
-                <p style={{ color: conditionColor(result.condition.overall), fontWeight: 600, margin: 0, fontSize: 14 }}>
+              {/* ステータス＋状態説明 */}
+              <div style={{ background: conditionColor(result.condition.overall) + "18", borderRadius: 10, padding: "12px 14px", marginBottom: 12, borderLeft: `4px solid ${conditionColor(result.condition.overall)}` }}>
+                <p style={{ color: conditionColor(result.condition.overall), fontWeight: 700, margin: "0 0 6px", fontSize: 15 }}>
                   {result.condition.overall === "良好" ? "✓ 良好" : result.condition.overall === "注意" ? "⚠ 注意" : "❗ 要処置"}
                 </p>
+                <p style={{ color: conditionColor(result.condition.overall), margin: 0, fontSize: 13, lineHeight: 1.6, opacity: 0.9 }}>
+                  {result.condition.summary}
+                </p>
                 {result.condition.disease && (
-                  <p style={{ color: conditionColor(result.condition.overall), margin: "4px 0 0", fontSize: 12 }}>病気：{result.condition.disease}</p>
+                  <p style={{ color: conditionColor(result.condition.overall), margin: "6px 0 0", fontSize: 12, fontWeight: 600 }}>病気：{result.condition.disease}</p>
                 )}
               </div>
 

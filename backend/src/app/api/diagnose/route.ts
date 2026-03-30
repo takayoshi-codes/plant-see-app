@@ -13,6 +13,7 @@ const SYSTEM_PROMPT = `You are a plant expert AI. Analyze the plant photo(s) and
   "family": "family name in Japanese",
   "condition": {
     "overall": "one of: 良好 or 注意 or 要処置",
+    "summary": "1-2 sentences in Japanese explaining WHY this status was given. e.g. 葉の色が鮮やかで張りがあり、全体的に健康な状態です。 or 葉の先端が黄変しており、水やりの過不足が考えられます。",
     "issues": [],
     "disease": null
   },
