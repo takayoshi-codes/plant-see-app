@@ -5,7 +5,7 @@ import { supabaseAdmin } from "@/lib/supabase"
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!)
 const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" })
 
-const SYSTEM_PROMPT = `You are a plant expert AI. Analyze the plant photo and respond ONLY in this exact JSON format with no other text:
+const SYSTEM_PROMPT = `You are a plant expert AI. Analyze the plant photo(s) and respond ONLY in this exact JSON format with no other text:
 {
   "plant_name": "plant common name in Japanese",
   "scientific_name": "scientific name",
@@ -29,22 +29,31 @@ const SYSTEM_PROMPT = `You are a plant expert AI. Analyze the plant photo and re
 export async function POST(req: NextRequest) {
   try {
     const formData = await req.formData()
-    const imageFile = formData.get("image") as File | null
-    const mimeType = (formData.get("mimeType") as string) ?? "image/jpeg"
+    const imageCount = parseInt((formData.get("imageCount") as string) ?? "1")
     const season = (formData.get("season") as string) ?? "spring"
     const location = (formData.get("location") as string) ?? "indoor"
     const userId = formData.get("userId") as string | null
 
-    if (!imageFile) {
+    const imageParts: { inlineData: { mimeType: string; data: string } }[] = []
+    const firstArrayBuffer: ArrayBuffer[] = []
+
+    for (let i = 0; i < imageCount; i++) {
+      const imageFile = formData.get(`image_${i}`) as File | null
+      const mimeType = (formData.get(`mimeType_${i}`) as string) ?? "image/jpeg"
+      if (!imageFile) continue
+      const arrayBuffer = await imageFile.arrayBuffer()
+      if (i === 0) firstArrayBuffer.push(arrayBuffer)
+      const base64 = Buffer.from(arrayBuffer).toString("base64")
+      imageParts.push({ inlineData: { mimeType, data: base64 } })
+    }
+
+    if (imageParts.length === 0) {
       return NextResponse.json({ error: "No image provided" }, { status: 400 })
     }
 
-    const arrayBuffer = await imageFile.arrayBuffer()
-    const base64 = Buffer.from(arrayBuffer).toString("base64")
-
     const result = await model.generateContent([
-      { inlineData: { mimeType: mimeType, data: base64 } },
-      `${SYSTEM_PROMPT}\n\nDiagnose this plant. Season: ${season}, Location: ${location}`,
+      ...imageParts,
+      `${SYSTEM_PROMPT}\n\nDiagnose this plant using all ${imageParts.length} photo(s) provided. Season: ${season}, Location: ${location}`,
     ])
 
     const text = result.response.text()
@@ -59,12 +68,12 @@ export async function POST(req: NextRequest) {
       })
     }
 
-    if (userId) {
-      const imageBuffer = Buffer.from(arrayBuffer)
+    if (userId && firstArrayBuffer.length > 0) {
+      const imageBuffer = Buffer.from(firstArrayBuffer[0])
       const fileName = `${userId}/${Date.now()}.jpg`
       const { data: uploadData, error: uploadError } = await supabaseAdmin.storage
         .from("plant-images")
-        .upload(fileName, imageBuffer, { contentType: mimeType, upsert: false })
+        .upload(fileName, imageBuffer, { contentType: "image/jpeg", upsert: false })
 
       let imageUrl = null
       if (!uploadError && uploadData) {
