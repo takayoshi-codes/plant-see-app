@@ -75,8 +75,8 @@ async function compressImage(file: File, maxWidth = 800, quality = 0.7): Promise
   })
 }
 
-const INDOOR = "\u5c4e\u5185"
-const OUTDOOR = "\u5c4e\u5916"
+const INDOOR = "\u5ba4\u5185"
+const OUTDOOR = "\u5c4a\u5916"
 
 const PHOTO_TIPS = [
   { icon: "\uD83C\uDF3F", label: "\u5168\u4f53\u50cf", desc: "\u690d\u7269\u5168\u4f53\u304c\u5165\u308b\u3088\u3046\u306b" },
@@ -87,7 +87,7 @@ const PHOTO_TIPS = [
 
 const SOIL_OPTIONS = [
   { value: "", label: "\u9078\u629e\u3057\u3066\u304f\u3060\u3055\u3044" },
-  { value: "\u4e3e\u71e5\u3057\u3066\u3044\u308b", label: "\u4e3e\u71e5\u3057\u3066\u3044\u308b" },
+  { value: "乾燥している", label: "乾燥している" },
   { value: "\u9069\u5ea6\u306b\u6e7f\u3063\u3066\u3044\u308b", label: "\u9069\u5ea6\u306b\u6e7f\u3063\u3066\u3044\u308b" },
   { value: "\u304b\u306a\u308a\u6e7f\u3063\u3066\u3044\u308b", label: "\u304b\u306a\u308a\u6e7f\u3063\u3066\u3044\u308b" },
   { value: "\u6c34\u304c\u6e9c\u307e\u3063\u3066\u3044\u308b", label: "\u6c34\u304c\u6e9c\u307e\u3063\u3066\u3044\u308b" },
