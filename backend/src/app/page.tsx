@@ -93,6 +93,13 @@ const SOIL_OPTIONS = [
   { value: "\u6c34\u304c\u6e9c\u307e\u3063\u3066\u3044\u308b", label: "\u6c34\u304c\u6e9c\u307e\u3063\u3066\u3044\u308b" },
 ]
 
+const CHAT_PLACEHOLDERS = [
+  "\u4f8b\uff09\u53ce\u7a6b\u6642\u671f\u3092\u6559\u3048\u3066",
+  "\u4f8b\uff09\u690d\u3048\u66ff\u3048\u306e\u30bf\u30a4\u30df\u30f3\u30b0\u306f\uff1f",
+  "\u4f8b\uff09\u8449\u304c\u9ec4\u8272\u304f\u306a\u308b\u539f\u56e0\u306f\uff1f",
+  "\u4f8b\uff09\u6563\u6b69\u306e\u65b9\u6cd5\u3092\u6559\u3048\u3066",
+]
+
 export default function Home() {
   const [images, setImages] = useState<{ url: string; file: File }[]>([])
   const [selectedIndex, setSelectedIndex] = useState(0)
@@ -112,9 +119,28 @@ export default function Home() {
   const [chatInput, setChatInput] = useState("")
   const [chatLoading, setChatLoading] = useState(false)
   const [savingPdf, setSavingPdf] = useState(false)
+  const [chatPlaceholderIndex] = useState(() => Math.floor(Math.random() * CHAT_PLACEHOLDERS.length))
   const fileInputRef = useRef<HTMLInputElement>(null)
   const cameraInputRef = useRef<HTMLInputElement>(null)
   const resultRef = useRef<HTMLDivElement>(null)
+
+  const resetAll = () => {
+    setImages([])
+    setSelectedIndex(0)
+    setResult(null)
+    setDiagnosedAt(null)
+    setDiagnosedImageUrl(null)
+    setNeedsRetake(false)
+    setError(null)
+    setChatMessages([])
+    setChatInput("")
+    setTemperature("")
+    setHumidity("")
+    setLastWatered("")
+    setSoilCondition("")
+    setShowEnvForm(false)
+    window.scrollTo({ top: 0, behavior: "smooth" })
+  }
 
   const addImages = async (files: FileList | null) => {
     if (!files) return
@@ -208,39 +234,37 @@ export default function Home() {
     try {
       const { default: jsPDF } = await import("jspdf")
       const { default: html2canvas } = await import("html2canvas")
-      const canvas = await html2canvas(resultRef.current, {
+      const el = resultRef.current
+      const canvas = await html2canvas(el, {
         scale: 2,
         useCORS: true,
         allowTaint: true,
-        scrollY: 0,
-        windowWidth: resultRef.current.scrollWidth,
-        windowHeight: resultRef.current.scrollHeight,
+        width: el.scrollWidth,
+        windowWidth: el.scrollWidth,
       })
-      const imgData = canvas.toDataURL("image/png")
       const pdf = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" })
-      const pdfWidth = pdf.internal.pageSize.getWidth()
-      const pdfHeight = pdf.internal.pageSize.getHeight()
-      const canvasRatio = canvas.height / canvas.width
-      const contentHeight = pdfWidth * canvasRatio
-      if (contentHeight <= pdfHeight) {
-        pdf.addImage(imgData, "PNG", 0, 0, pdfWidth, contentHeight)
+      const pageW = pdf.internal.pageSize.getWidth()
+      const pageH = pdf.internal.pageSize.getHeight()
+      const margin = 10
+      const contentW = pageW - margin * 2
+      const ratio = canvas.width / contentW
+      const contentH = canvas.height / ratio
+
+      if (contentH <= pageH - margin * 2) {
+        pdf.addImage(canvas.toDataURL("image/png"), "PNG", margin, margin, contentW, contentH)
       } else {
-        let yOffset = 0
-        let remainingHeight = contentHeight
+        let srcY = 0
         let page = 0
-        while (remainingHeight > 0) {
+        const sliceH = (pageH - margin * 2) * ratio
+        while (srcY < canvas.height) {
           if (page > 0) pdf.addPage()
-          const sliceHeight = Math.min(pdfHeight, remainingHeight)
-          const srcY = (yOffset / contentHeight) * canvas.height
-          const srcH = (sliceHeight / contentHeight) * canvas.height
+          const h = Math.min(sliceH, canvas.height - srcY)
           const sliceCanvas = document.createElement("canvas")
           sliceCanvas.width = canvas.width
-          sliceCanvas.height = srcH
-          const ctx = sliceCanvas.getContext("2d")!
-          ctx.drawImage(canvas, 0, srcY, canvas.width, srcH, 0, 0, canvas.width, srcH)
-          pdf.addImage(sliceCanvas.toDataURL("image/png"), "PNG", 0, 0, pdfWidth, sliceHeight)
-          yOffset += sliceHeight
-          remainingHeight -= sliceHeight
+          sliceCanvas.height = h
+          sliceCanvas.getContext("2d")!.drawImage(canvas, 0, srcY, canvas.width, h, 0, 0, canvas.width, h)
+          pdf.addImage(sliceCanvas.toDataURL("image/png"), "PNG", margin, margin, contentW, h / ratio)
+          srcY += h
           page++
         }
       }
@@ -262,19 +286,29 @@ export default function Home() {
   const amazonUrl = (keyword: string) =>
     `https://www.amazon.co.jp/s?k=${encodeURIComponent(keyword)}`
 
-  const inputStyle = {
+  const inputStyle: React.CSSProperties = {
     width: "100%",
     padding: "10px 12px",
     borderRadius: 10,
     border: "1px solid #ddd",
     fontSize: 13,
     outline: "none",
-    boxSizing: "border-box" as const,
+    boxSizing: "border-box",
     background: "#fff",
+    color: "#333",
+  }
+
+  const phStyle: React.CSSProperties = {
+    ...inputStyle,
+    color: "#bbb",
   }
 
   return (
     <main style={{ minHeight: "100vh", background: "#F8FBF8", padding: "24px 16px 48px" }}>
+      <style>{`
+        input::placeholder { color: #bbb; }
+        select option:first-child { color: #bbb; }
+      `}</style>
       <div style={{ maxWidth: 480, margin: "0 auto" }}>
 
         <div style={{ textAlign: "center", marginBottom: 28 }}>
@@ -375,7 +409,7 @@ export default function Home() {
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: "#fff", borderRadius: 12, padding: "12px 16px", marginBottom: 12, border: "0.5px solid #ddd" }}>
           <div>
             <p style={{ fontSize: 14, color: "#444", margin: 0 }}>
-              {"\u64ae\u5f71\u5834\u6240\uff1a"}<strong>{location}</strong>
+              {"\u64ae\u5f71\u5834\u6240\uff1a"}<strong>{location === INDOOR ? "\u5ba4\u5185" : "\u5c4e\u5916"}</strong>
             </p>
             <p style={{ fontSize: 11, color: "#aaa", margin: 0 }}>{"\u65e5\u7167\u30a2\u30c9\u30d0\u30a4\u30b9\u306b\u5f71\u97ff\u3057\u307e\u3059"}</p>
           </div>
@@ -401,43 +435,23 @@ export default function Home() {
             <div style={{ padding: "0 16px 16px", display: "flex", flexDirection: "column", gap: 10 }}>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
                 <div>
-                  <p style={{ fontSize: 12, color: "#666", margin: "0 0 4px", fontWeight: 600 }}>
-                    {"\u6c17\u6e29\uff08\u2103\uff09"}
-                  </p>
-                  <input
-                    type="number"
-                    value={temperature}
-                    onChange={e => setTemperature(e.target.value)}
-                    placeholder="25"
-                    style={inputStyle}
-                  />
+                  <p style={{ fontSize: 12, color: "#666", margin: "0 0 4px", fontWeight: 600 }}>{"\u6c17\u6e29\uff08\u2103\uff09"}</p>
+                  <input type="number" value={temperature} onChange={e => setTemperature(e.target.value)} placeholder="25" style={inputStyle} />
                 </div>
                 <div>
-                  <p style={{ fontSize: 12, color: "#666", margin: "0 0 4px", fontWeight: 600 }}>
-                    {"\u6e7f\u5ea6\uff08%\uff09"}
-                  </p>
-                  <input
-                    type="number"
-                    value={humidity}
-                    onChange={e => setHumidity(e.target.value)}
-                    placeholder="60"
-                    style={inputStyle}
-                  />
+                  <p style={{ fontSize: 12, color: "#666", margin: "0 0 4px", fontWeight: 600 }}>{"\u6e7f\u5ea6\uff08%\uff09"}</p>
+                  <input type="number" value={humidity} onChange={e => setHumidity(e.target.value)} placeholder="60" style={inputStyle} />
                 </div>
               </div>
               <div>
-                <p style={{ fontSize: 12, color: "#666", margin: "0 0 4px", fontWeight: 600 }}>
-                  {"\u6700\u5f8c\u306b\u6c34\u3092\u3084\u3063\u305f\u65e5"}
-                </p>
+                <p style={{ fontSize: 12, color: "#666", margin: "0 0 4px", fontWeight: 600 }}>{"\u6700\u5f8c\u306b\u6c34\u3092\u3084\u3063\u305f\u65e5"}</p>
                 <input type="date" value={lastWatered} onChange={e => setLastWatered(e.target.value)} style={inputStyle} />
               </div>
               <div>
-                <p style={{ fontSize: 12, color: "#666", margin: "0 0 4px", fontWeight: 600 }}>
-                  {"\u571f\u306e\u72b6\u614b"}
-                </p>
-                <select value={soilCondition} onChange={e => setSoilCondition(e.target.value)} style={inputStyle}>
+                <p style={{ fontSize: 12, color: "#666", margin: "0 0 4px", fontWeight: 600 }}>{"\u571f\u306e\u72b6\u614b"}</p>
+                <select value={soilCondition} onChange={e => setSoilCondition(e.target.value)} style={{ ...inputStyle, color: soilCondition === "" ? "#bbb" : "#333" }}>
                   {SOIL_OPTIONS.map(opt => (
-                    <option key={opt.value} value={opt.value}>{opt.label}</option>
+                    <option key={opt.value} value={opt.value} style={{ color: opt.value === "" ? "#bbb" : "#333" }}>{opt.label}</option>
                   ))}
                 </select>
               </div>
@@ -478,18 +492,18 @@ export default function Home() {
               )}
 
               {diagnosedImageUrl && (
-                <div style={{ width: "100%", height: 200, borderRadius: 12, overflow: "hidden", marginBottom: 16 }}>
-                  <img src={diagnosedImageUrl} alt="diagnosed plant" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                <div style={{ width: 160, height: 160, borderRadius: 12, overflow: "hidden", marginBottom: 16, flexShrink: 0 }}>
+                  <img src={diagnosedImageUrl} alt="diagnosed plant" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
                 </div>
               )}
 
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12 }}>
-                <div>
+                <div style={{ flex: 1 }}>
                   <p style={{ fontSize: 22, fontWeight: 700, color: "#1D3A2A", margin: 0 }}>{result.plant_name}</p>
                   <p style={{ fontSize: 13, color: "#666", fontStyle: "italic", margin: "2px 0" }}>{result.scientific_name}</p>
                   <p style={{ fontSize: 12, color: "#999", margin: 0 }}>{result.family}</p>
                 </div>
-                <div style={{ background: conditionColor(result.condition.overall) + "22", borderRadius: 10, padding: "6px 12px", flexShrink: 0 }}>
+                <div style={{ background: conditionColor(result.condition.overall) + "22", borderRadius: 10, padding: "6px 12px", flexShrink: 0, marginLeft: 12 }}>
                   <p style={{ fontSize: 18, fontWeight: 700, color: conditionColor(result.condition.overall), margin: 0 }}>{result.confidence}%</p>
                 </div>
               </div>
@@ -574,20 +588,18 @@ export default function Home() {
                         <span style={{ fontSize: 22 }}>{"\uD83D\uDCE6"}</span>
                         <p style={{ fontSize: 13, color: "#333", margin: 0, fontWeight: 600 }}>{product.name}</p>
                       </div>
-                      <span style={{ fontSize: 12, color: "#E47911", fontWeight: 600, whiteSpace: "nowrap", marginLeft: 8 }}>
-                        {"Amazon \u2192"}
-                      </span>
+                      <span style={{ fontSize: 12, color: "#E47911", fontWeight: 600, whiteSpace: "nowrap", marginLeft: 8 }}>{"Amazon \u2192"}</span>
                     </a>
                   ))}
                 </div>
               </div>
             )}
 
-            <button onClick={handleSavePdf} disabled={savingPdf} style={{ width: "100%", padding: 14, borderRadius: 12, border: "1px solid #ddd", background: "#fff", color: "#555", fontSize: 14, fontWeight: 600, cursor: savingPdf ? "not-allowed" : "pointer", marginBottom: 24 }}>
+            <button onClick={handleSavePdf} disabled={savingPdf} style={{ width: "100%", padding: 14, borderRadius: 12, border: "1px solid #ddd", background: "#fff", color: "#555", fontSize: 14, fontWeight: 600, cursor: savingPdf ? "not-allowed" : "pointer", marginBottom: 16 }}>
               {savingPdf ? "PDF\u3092\u751f\u6210\u4e2d..." : "\uD83D\uDCC4 \u8a3a\u65ad\u7d50\u679c\u3092PDF\u3067\u4fdd\u5b58"}
             </button>
 
-            <div style={{ background: "#fff", borderRadius: 16, padding: 20, border: "0.5px solid #ddd" }}>
+            <div style={{ background: "#fff", borderRadius: 16, padding: 20, border: "0.5px solid #ddd", marginBottom: 16 }}>
               <p style={{ fontSize: 14, fontWeight: 700, color: "#333", margin: "0 0 4px" }}>
                 {"\uD83D\uDCAC \u3053\u306e\u690d\u7269\u306b\u3064\u3044\u3066\u3055\u3089\u306b\u8cea\u554f\u3059\u308b"}
               </p>
@@ -619,14 +631,18 @@ export default function Home() {
                   value={chatInput}
                   onChange={e => setChatInput(e.target.value)}
                   onKeyDown={e => e.key === "Enter" && !e.shiftKey && handleChat()}
-                  placeholder="\u4f8b\uff1a\u690d\u3048\u66ff\u3048\u306e\u6642\u671f\u306f\u3044\u3064\u3067\u3059\u304b\uff1f"
-                  style={{ flex: 1, padding: "10px 14px", borderRadius: 10, border: "1px solid #ddd", fontSize: 13, outline: "none" }}
+                  placeholder={CHAT_PLACEHOLDERS[chatPlaceholderIndex]}
+                  style={{ flex: 1, padding: "10px 14px", borderRadius: 10, border: "1px solid #ddd", fontSize: 13, outline: "none", color: "#333" }}
                 />
                 <button onClick={handleChat} disabled={!chatInput.trim() || chatLoading} style={{ padding: "10px 16px", borderRadius: 10, border: "none", background: !chatInput.trim() || chatLoading ? "#9FE1CB" : "#1D9E75", color: "#fff", fontWeight: 600, cursor: !chatInput.trim() || chatLoading ? "not-allowed" : "pointer", fontSize: 13 }}>
                   {"\u9001\u4fe1"}
                 </button>
               </div>
             </div>
+
+            <button onClick={resetAll} style={{ width: "100%", padding: 16, borderRadius: 14, border: "2px solid #1D9E75", background: "#fff", color: "#1D9E75", fontSize: 15, fontWeight: 700, cursor: "pointer" }}>
+              {"\uD83D\uDCF7 \u5225\u306e\u5199\u771f\u3067\u8a3a\u65ad\u3059\u308b"}
+            </button>
           </>
         )}
       </div>
