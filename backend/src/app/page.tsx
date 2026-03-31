@@ -75,6 +75,9 @@ async function compressImage(file: File, maxWidth = 800, quality = 0.7): Promise
   })
 }
 
+const INDOOR = "\u5c4e\u5185"
+const OUTDOOR = "\u5c4e\u5916"
+
 const PHOTO_TIPS = [
   { icon: "\uD83C\uDF3F", label: "\u5168\u4f53\u50cf", desc: "\u690d\u7269\u5168\u4f53\u304c\u5165\u308b\u3088\u3046\u306b" },
   { icon: "\uD83C\uDF43", label: "\u8449\uff08\u8868\u9762\u30fb\u88cf\u9762\uff09", desc: "\u8272\u30fb\u6a21\u69d8\u30fb\u75c5\u5909\u3092\u78ba\u8a8d" },
@@ -82,10 +85,18 @@ const PHOTO_TIPS = [
   { icon: "\uD83C\uDF38", label: "\u82b1\u30fb\u5b9f", desc: "\u3042\u308c\u3070\u8b58\u5225\u7cbe\u5ea6\u304c\u5927\u5e45UP" },
 ]
 
+const SOIL_OPTIONS = [
+  { value: "", label: "\u9078\u629e\u3057\u3066\u304f\u3060\u3055\u3044" },
+  { value: "\u4e3e\u71e5\u3057\u3066\u3044\u308b", label: "\u4e3e\u71e5\u3057\u3066\u3044\u308b" },
+  { value: "\u9069\u5ea6\u306b\u6e7f\u3063\u3066\u3044\u308b", label: "\u9069\u5ea6\u306b\u6e7f\u3063\u3066\u3044\u308b" },
+  { value: "\u304b\u306a\u308a\u6e7f\u3063\u3066\u3044\u308b", label: "\u304b\u306a\u308a\u6e7f\u3063\u3066\u3044\u308b" },
+  { value: "\u6c34\u304c\u6e9c\u307e\u3063\u3066\u3044\u308b", label: "\u6c34\u304c\u6e9c\u307e\u3063\u3066\u3044\u308b" },
+]
+
 export default function Home() {
   const [images, setImages] = useState<{ url: string; file: File }[]>([])
   const [selectedIndex, setSelectedIndex] = useState(0)
-  const [location, setLocation] = useState<string>("\u5c4e\u5185")
+  const [location, setLocation] = useState(INDOOR)
   const [temperature, setTemperature] = useState("")
   const [humidity, setHumidity] = useState("")
   const [lastWatered, setLastWatered] = useState("")
@@ -94,6 +105,7 @@ export default function Home() {
   const [loading, setLoading] = useState(false)
   const [result, setResult] = useState<DiagnoseResult | null>(null)
   const [diagnosedAt, setDiagnosedAt] = useState<Date | null>(null)
+  const [diagnosedImageUrl, setDiagnosedImageUrl] = useState<string | null>(null)
   const [needsRetake, setNeedsRetake] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([])
@@ -157,6 +169,7 @@ export default function Home() {
       } else if (data.result) {
         setResult(data.result)
         setDiagnosedAt(new Date())
+        setDiagnosedImageUrl(images[0].url)
       } else {
         setError(data.error ?? "\u8a3a\u65ad\u306b\u5931\u6557\u3057\u307e\u3057\u305f")
       }
@@ -195,12 +208,42 @@ export default function Home() {
     try {
       const { default: jsPDF } = await import("jspdf")
       const { default: html2canvas } = await import("html2canvas")
-      const canvas = await html2canvas(resultRef.current, { scale: 2, useCORS: true })
+      const canvas = await html2canvas(resultRef.current, {
+        scale: 2,
+        useCORS: true,
+        allowTaint: true,
+        scrollY: 0,
+        windowWidth: resultRef.current.scrollWidth,
+        windowHeight: resultRef.current.scrollHeight,
+      })
       const imgData = canvas.toDataURL("image/png")
       const pdf = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" })
       const pdfWidth = pdf.internal.pageSize.getWidth()
-      const pdfHeight = (canvas.height * pdfWidth) / canvas.width
-      pdf.addImage(imgData, "PNG", 0, 0, pdfWidth, pdfHeight)
+      const pdfHeight = pdf.internal.pageSize.getHeight()
+      const canvasRatio = canvas.height / canvas.width
+      const contentHeight = pdfWidth * canvasRatio
+      if (contentHeight <= pdfHeight) {
+        pdf.addImage(imgData, "PNG", 0, 0, pdfWidth, contentHeight)
+      } else {
+        let yOffset = 0
+        let remainingHeight = contentHeight
+        let page = 0
+        while (remainingHeight > 0) {
+          if (page > 0) pdf.addPage()
+          const sliceHeight = Math.min(pdfHeight, remainingHeight)
+          const srcY = (yOffset / contentHeight) * canvas.height
+          const srcH = (sliceHeight / contentHeight) * canvas.height
+          const sliceCanvas = document.createElement("canvas")
+          sliceCanvas.width = canvas.width
+          sliceCanvas.height = srcH
+          const ctx = sliceCanvas.getContext("2d")!
+          ctx.drawImage(canvas, 0, srcY, canvas.width, srcH, 0, 0, canvas.width, srcH)
+          pdf.addImage(sliceCanvas.toDataURL("image/png"), "PNG", 0, 0, pdfWidth, sliceHeight)
+          yOffset += sliceHeight
+          remainingHeight -= sliceHeight
+          page++
+        }
+      }
       const dateStr = formatDateTime(diagnosedAt ?? new Date())
       pdf.save(`${result.plant_name}_\u8a3a\u65ad\u7d50\u679c_${dateStr}.pdf`)
     } catch {
@@ -235,14 +278,22 @@ export default function Home() {
       <div style={{ maxWidth: 480, margin: "0 auto" }}>
 
         <div style={{ textAlign: "center", marginBottom: 28 }}>
-          <h1 style={{ fontSize: 28, fontWeight: 800, color: "#1D3A2A", margin: "0 0 6px" }}>{"\uD83C\uDF3F"} {"\u690d\u7269\u8a3a\u65ad"}</h1>
-          <p style={{ fontSize: 13, color: "#666", margin: 0 }}>{"\u5199\u771f\u3092\u64ae\u308b\u3060\u3051\u3067\u690d\u7269\u306e\u72b6\u614b\u3068\u30b1\u30a2\u65b9\u6cd5\u304c\u308f\u304b\u308a\u307e\u3059"}</p>
+          <h1 style={{ fontSize: 28, fontWeight: 800, color: "#1D3A2A", margin: "0 0 6px" }}>
+            {"\uD83C\uDF3F \u690d\u7269\u8a3a\u65ad"}
+          </h1>
+          <p style={{ fontSize: 13, color: "#666", margin: 0 }}>
+            {"\u5199\u771f\u3092\u64ae\u308b\u3060\u3051\u3067\u690d\u7269\u306e\u72b6\u614b\u3068\u30b1\u30a2\u65b9\u6cd5\u304c\u308f\u304b\u308a\u307e\u3059"}
+          </p>
         </div>
 
         <div style={{ background: "#EEF8F3", borderRadius: 14, padding: "14px 16px", marginBottom: 20, border: "1px solid #C5E8D8" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-            <p style={{ fontSize: 13, fontWeight: 700, color: "#1D6A4A", margin: 0 }}>{"\uD83D\uDCF8 \u8907\u6570\u306e\u5199\u771f\u3067\u8a3a\u65ad\u7cbe\u5ea6\u304c\u30a2\u30c3\u30d7\u3057\u307e\u3059"}</p>
-            <span style={{ fontSize: 11, color: "#fff", background: "#1D9E75", borderRadius: 20, padding: "2px 10px", fontWeight: 600, whiteSpace: "nowrap" }}>{"\u6700\u592754\u679a"}</span>
+            <p style={{ fontSize: 13, fontWeight: 700, color: "#1D6A4A", margin: 0 }}>
+              {"\uD83D\uDCF8 \u8907\u6570\u306e\u5199\u771f\u3067\u8a3a\u65ad\u7cbe\u5ea6\u304c\u30a2\u30c3\u30d7\u3057\u307e\u3059"}
+            </p>
+            <span style={{ fontSize: 11, color: "#fff", background: "#1D9E75", borderRadius: 20, padding: "2px 10px", fontWeight: 600, whiteSpace: "nowrap" }}>
+              {"\u6700\u59275\u679a"}
+            </span>
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
             {PHOTO_TIPS.map(tip => (
@@ -309,7 +360,9 @@ export default function Home() {
           </div>
         ) : (
           <div style={{ background: "#FFF3CC", borderRadius: 10, padding: "8px 12px", marginBottom: 12, textAlign: "center" }}>
-            <p style={{ fontSize: 12, color: "#8A5C00", margin: 0 }}>{"\u2713 \u5199\u771f\u304c5\u679a\u63c3\u3044\u307e\u3057\u305f\u3002\u305d\u306e\u307e\u307e\u8a3a\u65ad\u3067\u304d\u307e\u3059\u3002"}</p>
+            <p style={{ fontSize: 12, color: "#8A5C00", margin: 0 }}>
+              {"\u2713 \u5199\u771f\u304c5\u679a\u63c3\u3044\u307e\u3057\u305f\u3002\u305d\u306e\u307e\u307e\u8a3a\u65ad\u3067\u304d\u307e\u3059\u3002"}
+            </p>
           </div>
         )}
 
@@ -321,17 +374,26 @@ export default function Home() {
 
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: "#fff", borderRadius: 12, padding: "12px 16px", marginBottom: 12, border: "0.5px solid #ddd" }}>
           <div>
-            <p style={{ fontSize: 14, color: "#444", margin: 0 }}>{"\u64ae\u5f71\u5834\u6240\uff1a"}<strong>{location}</strong></p>
+            <p style={{ fontSize: 14, color: "#444", margin: 0 }}>
+              {"\u64ae\u5f71\u5834\u6240\uff1a"}<strong>{location}</strong>
+            </p>
             <p style={{ fontSize: 11, color: "#aaa", margin: 0 }}>{"\u65e5\u7167\u30a2\u30c9\u30d0\u30a4\u30b9\u306b\u5f71\u97ff\u3057\u307e\u3059"}</p>
           </div>
-          <button onClick={() => setLocation(location === "\u5c4e\u5185" ? "\u5c4e\u5916" : "\u5c4e\u5185")} style={{ background: location === "\u5c4e\u5916" ? "#1D9E75" : "#ccc", border: "none", borderRadius: 20, width: 52, height: 28, cursor: "pointer", flexShrink: 0 }} />
+          <button
+            onClick={() => setLocation(location === INDOOR ? OUTDOOR : INDOOR)}
+            style={{ background: location === OUTDOOR ? "#1D9E75" : "#ccc", border: "none", borderRadius: 20, width: 52, height: 28, cursor: "pointer", flexShrink: 0 }}
+          />
         </div>
 
         <div style={{ background: "#fff", borderRadius: 12, border: "0.5px solid #ddd", marginBottom: 16, overflow: "hidden" }}>
           <button onClick={() => setShowEnvForm(!showEnvForm)} style={{ width: "100%", padding: "12px 16px", background: "none", border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
             <div style={{ textAlign: "left" }}>
-              <p style={{ fontSize: 14, color: "#444", margin: 0, fontWeight: 600 }}>{"\uD83C\uDF21\uFE0F \u74b0\u5883\u60c5\u5831\u3092\u5165\u529b\u3059\u308b\uff08\u4efb\u610f\uff09"}</p>
-              <p style={{ fontSize: 11, color: "#aaa", margin: 0 }}>{"\u5165\u529b\u3059\u308b\u3068\u3088\u308a\u7cbe\u5ea6\u306e\u9ad8\u3044\u8a3a\u65ad\u304c\u3067\u304d\u307e\u3059"}</p>
+              <p style={{ fontSize: 14, color: "#444", margin: 0, fontWeight: 600 }}>
+                {"\uD83C\uDF21\uFE0F \u74b0\u5883\u60c5\u5831\u3092\u5165\u529b\u3059\u308b\uff08\u4efb\u610f\uff09"}
+              </p>
+              <p style={{ fontSize: 11, color: "#aaa", margin: 0 }}>
+                {"\u5165\u529b\u3059\u308b\u3068\u3088\u308a\u7cbe\u5ea6\u306e\u9ad8\u3044\u8a3a\u65ad\u304c\u3067\u304d\u307e\u3059"}
+              </p>
             </div>
             <span style={{ fontSize: 12, color: "#888" }}>{showEnvForm ? "\u25b2" : "\u25bc"}</span>
           </button>
@@ -339,26 +401,44 @@ export default function Home() {
             <div style={{ padding: "0 16px 16px", display: "flex", flexDirection: "column", gap: 10 }}>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
                 <div>
-                  <p style={{ fontSize: 12, color: "#666", margin: "0 0 4px", fontWeight: 600 }}>{"\u6c17\u6e29\uff08\u2103\uff09"}</p>
-                  <input type="number" value={temperature} onChange={e => setTemperature(e.target.value)} placeholder="\u4f8b\uff1a25" style={inputStyle} />
+                  <p style={{ fontSize: 12, color: "#666", margin: "0 0 4px", fontWeight: 600 }}>
+                    {"\u6c17\u6e29\uff08\u2103\uff09"}
+                  </p>
+                  <input
+                    type="number"
+                    value={temperature}
+                    onChange={e => setTemperature(e.target.value)}
+                    placeholder="25"
+                    style={inputStyle}
+                  />
                 </div>
                 <div>
-                  <p style={{ fontSize: 12, color: "#666", margin: "0 0 4px", fontWeight: 600 }}>{"\u6e7f\u5ea6\uff08%\uff09"}</p>
-                  <input type="number" value={humidity} onChange={e => setHumidity(e.target.value)} placeholder="\u4f8b\uff1a60" style={inputStyle} />
+                  <p style={{ fontSize: 12, color: "#666", margin: "0 0 4px", fontWeight: 600 }}>
+                    {"\u6e7f\u5ea6\uff08%\uff09"}
+                  </p>
+                  <input
+                    type="number"
+                    value={humidity}
+                    onChange={e => setHumidity(e.target.value)}
+                    placeholder="60"
+                    style={inputStyle}
+                  />
                 </div>
               </div>
               <div>
-                <p style={{ fontSize: 12, color: "#666", margin: "0 0 4px", fontWeight: 600 }}>{"\u6700\u5f8c\u306b\u6c34\u3092\u3084\u3063\u305f\u65e5"}</p>
+                <p style={{ fontSize: 12, color: "#666", margin: "0 0 4px", fontWeight: 600 }}>
+                  {"\u6700\u5f8c\u306b\u6c34\u3092\u3084\u3063\u305f\u65e5"}
+                </p>
                 <input type="date" value={lastWatered} onChange={e => setLastWatered(e.target.value)} style={inputStyle} />
               </div>
               <div>
-                <p style={{ fontSize: 12, color: "#666", margin: "0 0 4px", fontWeight: 600 }}>{"\u571f\u306e\u72b6\u614b"}</p>
+                <p style={{ fontSize: 12, color: "#666", margin: "0 0 4px", fontWeight: 600 }}>
+                  {"\u571f\u306e\u72b6\u614b"}
+                </p>
                 <select value={soilCondition} onChange={e => setSoilCondition(e.target.value)} style={inputStyle}>
-                  <option value="">{"\u9078\u629e\u3057\u3066\u304f\u3060\u3055\u3044"}</option>
-                  <option value="\u4e3e\u71e5\u3057\u3066\u3044\u308b">{"\u4e3e\u71e5\u3057\u3066\u3044\u308b"}</option>
-                  <option value="\u9069\u5ea6\u306b\u6e7f\u3063\u3066\u3044\u308b">{"\u9069\u5ea6\u306b\u6e7f\u3063\u3066\u3044\u308b"}</option>
-                  <option value="\u304b\u306a\u308a\u6e7f\u3063\u3066\u3044\u308b">{"\u304b\u306a\u308a\u6e7f\u3063\u3066\u3044\u308b"}</option>
-                  <option value="\u6c34\u304c\u6e9c\u307e\u3063\u3066\u3044\u308b">{"\u6c34\u304c\u6e9c\u307e\u3063\u3066\u3044\u308b"}</option>
+                  {SOIL_OPTIONS.map(opt => (
+                    <option key={opt.value} value={opt.value}>{opt.label}</option>
+                  ))}
                 </select>
               </div>
             </div>
@@ -366,7 +446,11 @@ export default function Home() {
         </div>
 
         <button onClick={handleDiagnose} disabled={images.length === 0 || loading} style={{ width: "100%", padding: 16, borderRadius: 14, border: "none", background: images.length === 0 || loading ? "#9FE1CB" : "#1D9E75", color: "#fff", fontSize: 16, fontWeight: 700, cursor: images.length === 0 || loading ? "not-allowed" : "pointer", marginBottom: 24 }}>
-          {loading ? "AI\u304c\u8a3a\u65ad\u4e2d..." : images.length === 0 ? "\u5199\u771f\u3092\u8ffd\u52a0\u3057\u3066\u304f\u3060\u3055\u3044" : `\uD83D\uDD0D ${images.length}\u679a\u306e\u5199\u771f\u3067\u8a3a\u65ad\u3059\u308b`}
+          {loading
+            ? "AI\u304c\u8a3a\u65ad\u4e2d..."
+            : images.length === 0
+            ? "\u5199\u771f\u3092\u8ffd\u52a0\u3057\u3066\u304f\u3060\u3055\u3044"
+            : `\uD83D\uDD0D ${images.length}\u679a\u306e\u5199\u771f\u3067\u8a3a\u65ad\u3059\u308b`}
         </button>
 
         {error && (
@@ -377,18 +461,28 @@ export default function Home() {
 
         {needsRetake && (
           <div style={{ background: "#FFF3CC", borderRadius: 10, padding: 12, marginBottom: 16 }}>
-            <p style={{ color: "#8A5C00", margin: 0, fontSize: 14 }}>{"\u26a0 \u5225\u306e\u89d2\u5ea6\u3084\u660e\u308b\u3044\u5834\u6240\u3067\u518d\u5ea6\u304a\u8a66\u3057\u304f\u3060\u3055\u3044\u3002"}</p>
+            <p style={{ color: "#8A5C00", margin: 0, fontSize: 14 }}>
+              {"\u26a0 \u5225\u306e\u89d2\u5ea6\u3084\u660e\u308b\u3044\u5834\u6240\u3067\u518d\u5ea6\u304a\u8a66\u3057\u304f\u3060\u3055\u3044\u3002"}
+            </p>
           </div>
         )}
 
         {result && (
           <>
             <div ref={resultRef} style={{ background: "#fff", borderRadius: 16, padding: 20, border: "0.5px solid #ddd", marginBottom: 16 }}>
+
               {diagnosedAt && (
                 <p style={{ fontSize: 11, color: "#aaa", margin: "0 0 12px", textAlign: "right" }}>
                   {"\u8a3a\u65ad\u65e5\u6642\uff1a"}{formatDateTimeDisplay(diagnosedAt)}
                 </p>
               )}
+
+              {diagnosedImageUrl && (
+                <div style={{ width: "100%", height: 200, borderRadius: 12, overflow: "hidden", marginBottom: 16 }}>
+                  <img src={diagnosedImageUrl} alt="diagnosed plant" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                </div>
+              )}
+
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12 }}>
                 <div>
                   <p style={{ fontSize: 22, fontWeight: 700, color: "#1D3A2A", margin: 0 }}>{result.plant_name}</p>
@@ -408,7 +502,9 @@ export default function Home() {
                   {result.condition.summary}
                 </p>
                 {result.condition.disease && (
-                  <p style={{ color: conditionColor(result.condition.overall), margin: "6px 0 0", fontSize: 12, fontWeight: 600 }}>{"\u75c5\u6c17\uff1a"}{result.condition.disease}</p>
+                  <p style={{ color: conditionColor(result.condition.overall), margin: "6px 0 0", fontSize: 12, fontWeight: 600 }}>
+                    {"\u75c5\u6c17\uff1a"}{result.condition.disease}
+                  </p>
                 )}
               </div>
 
@@ -422,12 +518,16 @@ export default function Home() {
 
               {result.care_advice.immediate_action && (
                 <div style={{ background: "#FDECEA", borderRadius: 8, padding: 10, marginBottom: 12 }}>
-                  <p style={{ color: "#A32D2D", fontWeight: 600, margin: 0, fontSize: 13 }}>{"\uD83D\uDEA8 \u4eca\u3059\u3050\uff1a"}{result.care_advice.immediate_action}</p>
+                  <p style={{ color: "#A32D2D", fontWeight: 600, margin: 0, fontSize: 13 }}>
+                    {"\uD83D\uDEA8 \u4eca\u3059\u3050\uff1a"}{result.care_advice.immediate_action}
+                  </p>
                 </div>
               )}
 
               <div style={{ borderTop: "0.5px solid #eee", paddingTop: 14, marginBottom: 12 }}>
-                <p style={{ fontSize: 14, fontWeight: 700, color: "#333", marginBottom: 12 }}>{"\u30b1\u30a2\u30a2\u30c9\u30d0\u30a4\u30b9"}</p>
+                <p style={{ fontSize: 14, fontWeight: 700, color: "#333", marginBottom: 12 }}>
+                  {"\u30b1\u30a2\u30a2\u30c9\u30d0\u30a4\u30b9"}
+                </p>
                 {[
                   { icon: "\uD83D\uDCA7", label: "\u6c34\u3084\u308a", text: result.care_advice.watering },
                   { icon: "\u2600\uFE0F", label: "\u65e5\u7167", text: result.care_advice.sunlight },
@@ -444,12 +544,16 @@ export default function Home() {
               </div>
 
               <div style={{ background: "#EEF8F3", borderRadius: 8, padding: 10, marginBottom: 8 }}>
-                <p style={{ fontSize: 13, color: "#1D6A4A", margin: 0, lineHeight: 1.6 }}>{"\uD83C\uDF43 "}{result.season_tip}</p>
+                <p style={{ fontSize: 13, color: "#1D6A4A", margin: 0, lineHeight: 1.6 }}>
+                  {"\uD83C\uDF43 "}{result.season_tip}
+                </p>
               </div>
 
               {result.recipe && (
                 <div style={{ background: "#FFF8E7", borderRadius: 8, padding: 10 }}>
-                  <p style={{ fontSize: 12, fontWeight: 600, color: "#8A5C00", margin: "0 0 4px" }}>{"\uD83C\uDF7D\uFE0F \u304a\u3059\u3059\u3081\u306e\u98df\u3079\u65b9"}</p>
+                  <p style={{ fontSize: 12, fontWeight: 600, color: "#8A5C00", margin: "0 0 4px" }}>
+                    {"\uD83C\uDF7D\uFE0F \u304a\u3059\u3059\u3081\u306e\u98df\u3079\u65b9"}
+                  </p>
                   <p style={{ fontSize: 13, color: "#8A5C00", margin: 0, lineHeight: 1.6 }}>{result.recipe}</p>
                 </div>
               )}
@@ -457,8 +561,12 @@ export default function Home() {
 
             {result.recommended_products && result.recommended_products.length > 0 && (
               <div style={{ background: "#fff", borderRadius: 16, padding: 20, border: "0.5px solid #ddd", marginBottom: 16 }}>
-                <p style={{ fontSize: 14, fontWeight: 700, color: "#333", margin: "0 0 4px" }}>{"\uD83D\uDED2 \u304a\u3059\u3059\u3081\u5546\u54c1"}</p>
-                <p style={{ fontSize: 12, color: "#888", margin: "0 0 14px" }}>{"\u8a3a\u65ad\u7d50\u679c\u306b\u57fa\u3065\u3044\u3066Amazon\u3067\u691c\u7d22\u3067\u304d\u307e\u3059"}</p>
+                <p style={{ fontSize: 14, fontWeight: 700, color: "#333", margin: "0 0 4px" }}>
+                  {"\uD83D\uDED2 \u304a\u3059\u3059\u3081\u5546\u54c1"}
+                </p>
+                <p style={{ fontSize: 12, color: "#888", margin: "0 0 14px" }}>
+                  {"\u8a3a\u65ad\u7d50\u679c\u306b\u57fa\u3065\u3044\u3066Amazon\u3067\u691c\u7d22\u3067\u304d\u307e\u3059"}
+                </p>
                 <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                   {result.recommended_products.map((product, i) => (
                     <a key={i} href={amazonUrl(product.keyword)} target="_blank" rel="noopener noreferrer" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 14px", background: "#FFF8E7", borderRadius: 10, border: "1px solid #F0D9A0", textDecoration: "none" }}>
@@ -466,7 +574,9 @@ export default function Home() {
                         <span style={{ fontSize: 22 }}>{"\uD83D\uDCE6"}</span>
                         <p style={{ fontSize: 13, color: "#333", margin: 0, fontWeight: 600 }}>{product.name}</p>
                       </div>
-                      <span style={{ fontSize: 12, color: "#E47911", fontWeight: 600, whiteSpace: "nowrap", marginLeft: 8 }}>{"Amazon \u2192"}</span>
+                      <span style={{ fontSize: 12, color: "#E47911", fontWeight: 600, whiteSpace: "nowrap", marginLeft: 8 }}>
+                        {"Amazon \u2192"}
+                      </span>
                     </a>
                   ))}
                 </div>
@@ -478,8 +588,13 @@ export default function Home() {
             </button>
 
             <div style={{ background: "#fff", borderRadius: 16, padding: 20, border: "0.5px solid #ddd" }}>
-              <p style={{ fontSize: 14, fontWeight: 700, color: "#333", margin: "0 0 4px" }}>{"\uD83D\uDCAC \u3053\u306e\u690d\u7269\u306b\u3064\u3044\u3066\u3055\u3089\u306b\u8cea\u554f\u3059\u308b"}</p>
-              <p style={{ fontSize: 12, color: "#888", margin: "0 0 14px" }}>{"\u8a3a\u65ad\u7d50\u679c\u3092\u3082\u3068\u306bAI\u304c\u56de\u7b54\u3057\u307e\u3059"}</p>
+              <p style={{ fontSize: 14, fontWeight: 700, color: "#333", margin: "0 0 4px" }}>
+                {"\uD83D\uDCAC \u3053\u306e\u690d\u7269\u306b\u3064\u3044\u3066\u3055\u3089\u306b\u8cea\u554f\u3059\u308b"}
+              </p>
+              <p style={{ fontSize: 12, color: "#888", margin: "0 0 14px" }}>
+                {"\u8a3a\u65ad\u7d50\u679c\u3092\u3082\u3068\u306bAI\u304c\u56de\u7b54\u3057\u307e\u3059"}
+              </p>
+
               {chatMessages.length > 0 && (
                 <div style={{ marginBottom: 14, display: "flex", flexDirection: "column", gap: 10 }}>
                   {chatMessages.map((msg, i) => (
@@ -491,13 +606,22 @@ export default function Home() {
                   ))}
                   {chatLoading && (
                     <div style={{ display: "flex", justifyContent: "flex-start" }}>
-                      <div style={{ background: "#F0F0F0", borderRadius: "14px 14px 14px 4px", padding: "10px 14px", fontSize: 13, color: "#888" }}>{"\u8003\u3048\u4e2d..."}</div>
+                      <div style={{ background: "#F0F0F0", borderRadius: "14px 14px 14px 4px", padding: "10px 14px", fontSize: 13, color: "#888" }}>
+                        {"\u8003\u3048\u4e2d..."}
+                      </div>
                     </div>
                   )}
                 </div>
               )}
+
               <div style={{ display: "flex", gap: 8 }}>
-                <input value={chatInput} onChange={e => setChatInput(e.target.value)} onKeyDown={e => e.key === "Enter" && !e.shiftKey && handleChat()} placeholder="\u4f8b\uff1a\u690d\u3048\u66ff\u3048\u306e\u6642\u671f\u306f\u3044\u3064\u3067\u3059\u304b\uff1f" style={{ flex: 1, padding: "10px 14px", borderRadius: 10, border: "1px solid #ddd", fontSize: 13, outline: "none" }} />
+                <input
+                  value={chatInput}
+                  onChange={e => setChatInput(e.target.value)}
+                  onKeyDown={e => e.key === "Enter" && !e.shiftKey && handleChat()}
+                  placeholder="\u4f8b\uff1a\u690d\u3048\u66ff\u3048\u306e\u6642\u671f\u306f\u3044\u3064\u3067\u3059\u304b\uff1f"
+                  style={{ flex: 1, padding: "10px 14px", borderRadius: 10, border: "1px solid #ddd", fontSize: 13, outline: "none" }}
+                />
                 <button onClick={handleChat} disabled={!chatInput.trim() || chatLoading} style={{ padding: "10px 16px", borderRadius: 10, border: "none", background: !chatInput.trim() || chatLoading ? "#9FE1CB" : "#1D9E75", color: "#fff", fontWeight: 600, cursor: !chatInput.trim() || chatLoading ? "not-allowed" : "pointer", fontSize: 13 }}>
                   {"\u9001\u4fe1"}
                 </button>
