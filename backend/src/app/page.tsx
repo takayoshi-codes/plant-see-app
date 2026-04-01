@@ -75,7 +75,7 @@ async function compressImage(file: File, maxWidth = 800, quality = 0.7): Promise
   })
 }
 
-const INDOOR = "\u5ba4\u5185"
+const INDOOR = "室内"
 const OUTDOOR = "\u5c4a\u5916"
 
 const PHOTO_TIPS = [
