@@ -76,7 +76,7 @@ async function compressImage(file: File, maxWidth = 800, quality = 0.7): Promise
 }
 
 const INDOOR = "室内"
-const OUTDOOR = "\u5c4a\u5916"
+const OUTDOOR = "屋外"
 
 const PHOTO_TIPS = [
   { icon: "\uD83C\uDF3F", label: "\u5168\u4f53\u50cf", desc: "\u690d\u7269\u5168\u4f53\u304c\u5165\u308b\u3088\u3046\u306b" },
@@ -409,7 +409,7 @@ export default function Home() {
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: "#fff", borderRadius: 12, padding: "12px 16px", marginBottom: 12, border: "0.5px solid #ddd" }}>
           <div>
             <p style={{ fontSize: 14, color: "#444", margin: 0 }}>
-              {"\u64ae\u5f71\u5834\u6240\uff1a"}<strong>{location === INDOOR ? "\u5ba4\u5185" : "\u5c4e\u5916"}</strong>
+              {"\u64ae\u5f71\u5834\u6240\uff1a"}<strong>{location === INDOOR ? "室内" : "屋外"}</strong>
             </p>
             <p style={{ fontSize: 11, color: "#aaa", margin: 0 }}>{"\u65e5\u7167\u30a2\u30c9\u30d0\u30a4\u30b9\u306b\u5f71\u97ff\u3057\u307e\u3059"}</p>
           </div>
