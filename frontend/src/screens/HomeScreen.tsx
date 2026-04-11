@@ -1,242 +1,379 @@
 import React, { useState } from 'react'
 import {
-  View, Text, TouchableOpacity, StyleSheet,
-  ActivityIndicator, Alert, Image, ScrollView, Switch,
+  View, Text, TouchableOpacity, Image, Switch,
+  StyleSheet, ScrollView, ActivityIndicator, Alert,
 } from 'react-native'
 import * as ImagePicker from 'expo-image-picker'
-import { diagnoseImage, DiagnoseResult } from '../lib/api'
-import { useAuth } from '../hooks/useAuth'
+import { diagnose, DiagnoseResult } from '../lib/api'
 
-type Location = '室内' | '屋外'
+// ─── Sub-component ────────────────────────────────────────────────────────────
+interface AdviceRowProps {
+  icon: string
+  label: string
+  value: string
+  accent: string
+}
+function AdviceCard({ icon, label, value, accent }: AdviceRowProps) {
+  return (
+    <View style={[adviceStyles.card, { borderTopColor: accent }]}>
+      <Text style={adviceStyles.icon}>{icon}</Text>
+      <Text style={adviceStyles.label}>{label}</Text>
+      <Text style={adviceStyles.value}>{value}</Text>
+    </View>
+  )
+}
 
+// ─── Screen ───────────────────────────────────────────────────────────────────
 export default function HomeScreen() {
-  const { user } = useAuth()
-  const [imageUri, setImageUri] = useState<string | null>(null)
-  const [location, setLocation] = useState<Location>('室内')
-  const [loading, setLoading] = useState(false)
-  const [result, setResult] = useState<DiagnoseResult | null>(null)
+  const [imageUri, setImageUri]     = useState<string | null>(null)
+  const [location, setLocation]     = useState<'室内' | '屋外'>('室内')
+  const [loading, setLoading]       = useState(false)
+  const [result, setResult]         = useState<DiagnoseResult | null>(null)
   const [needsRetake, setNeedsRetake] = useState(false)
 
-  // カメラで撮影
   const handleCamera = async () => {
-    const perm = await ImagePicker.requestCameraPermissionsAsync()
-    if (!perm.granted) { Alert.alert('カメラの許可が必要です'); return }
-    const picked = await ImagePicker.launchCameraAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      quality: 0.7,
-      base64: false,
-    })
-    if (!picked.canceled) {
-      setImageUri(picked.assets[0].uri)
-      setResult(null)
-      setNeedsRetake(false)
-    }
+    const { status } = await ImagePicker.requestCameraPermissionsAsync()
+    if (status !== 'granted') { Alert.alert('カメラへのアクセスが必要です'); return }
+    const res = await ImagePicker.launchCameraAsync({ quality: 0.85, base64: false })
+    if (!res.canceled) { setImageUri(res.assets[0].uri); setResult(null); setNeedsRetake(false) }
   }
 
-  // ギャラリーから選択
   const handleGallery = async () => {
-    const picked = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      quality: 0.7,
-    })
-    if (!picked.canceled) {
-      setImageUri(picked.assets[0].uri)
-      setResult(null)
-      setNeedsRetake(false)
-    }
+    const res = await ImagePicker.launchImageLibraryAsync({ quality: 0.85, base64: false })
+    if (!res.canceled) { setImageUri(res.assets[0].uri); setResult(null); setNeedsRetake(false) }
   }
 
-  // 診断実行
   const handleDiagnose = async () => {
     if (!imageUri) return
     setLoading(true)
-    setResult(null)
-    setNeedsRetake(false)
     try {
-      const response = await diagnoseImage({
-        imageUri,
-        location,
-        userId: user?.id,
-      })
-      if (response.needsRetake) {
-        setNeedsRetake(true)
-        Alert.alert('再撮影をお願いします', response.message ?? '別の角度で撮影してください')
-      } else if (response.result) {
-        setResult(response.result)
-      }
-    } catch (e: any) {
-      Alert.alert('エラー', e.message)
+      const data = await diagnose(imageUri, location)
+      if (data.needs_retake) { setNeedsRetake(true); Alert.alert('再撮影が必要です', data.retake_reason ?? '') }
+      else { setResult(data) }
+    } catch {
+      Alert.alert('エラー', '診断に失敗しました。しばらくしてから再試行してください。')
     } finally {
       setLoading(false)
     }
   }
 
-  const conditionColor = (overall: string) => {
-    if (overall === '良好') return '#1D9E75'
-    if (overall === '注意') return '#BA7517'
-    return '#A32D2D'
+  const conditionColor = (status?: string) => {
+    if (status === '良好')   return { bg: '#D1FAE5', text: '#065F46', dot: '#10B981' }
+    if (status === '注意')   return { bg: '#FEF3C7', text: '#92400E', dot: '#F59E0B' }
+    if (status === '要処置') return { bg: '#FEE2E2', text: '#7F1D1D', dot: '#EF4444' }
+    return { bg: '#F3F4F6', text: '#6B7280', dot: '#9CA3AF' }
   }
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      <Text style={styles.title}>🌿 植物診断</Text>
+    <ScrollView style={styles.root} contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
 
-      {/* 撮影エリア */}
-      <TouchableOpacity style={styles.cameraBox} onPress={handleCamera}>
-        {imageUri
-          ? <Image source={{ uri: imageUri }} style={styles.preview} />
-          : <Text style={styles.cameraHint}>タップしてカメラを起動</Text>
-        }
-      </TouchableOpacity>
-
-      <TouchableOpacity style={styles.galleryBtn} onPress={handleGallery}>
-        <Text style={styles.galleryBtnText}>📁 ギャラリーから選ぶ</Text>
-      </TouchableOpacity>
-
-      {/* 撮影場所トグル */}
-      <View style={styles.locationRow}>
-        <Text style={styles.locationLabel}>撮影場所：{location}</Text>
-        <Switch
-          value={location === '屋外'}
-          onValueChange={v => setLocation(v ? '屋外' : '室内')}
-          trackColor={{ false: '#ccc', true: '#1D9E75' }}
-          thumbColor="#fff"
-        />
+      {/* ── Header ── */}
+      <View style={styles.header}>
+        <Text style={styles.headerTitle}>🌿 植物診断</Text>
+        <Text style={styles.headerSub}>写真で植物の健康状態をチェック</Text>
       </View>
 
-      {/* 診断ボタン */}
-      <TouchableOpacity
-        style={[styles.diagnoseBtn, (!imageUri || loading) && styles.diagnoseBtnDisabled]}
-        onPress={handleDiagnose}
-        disabled={!imageUri || loading}
-      >
-        {loading
-          ? <ActivityIndicator color="#fff" />
-          : <Text style={styles.diagnoseBtnText}>🔍 診断する</Text>
-        }
-      </TouchableOpacity>
-
-      {/* 診断結果 */}
-      {result && (
-        <View style={styles.resultCard}>
-          <View style={styles.resultHeader}>
-            <View>
-              <Text style={styles.plantName}>{result.plant_name}</Text>
-              <Text style={styles.scientificName}>{result.scientific_name}</Text>
-              <Text style={styles.family}>{result.family}</Text>
-            </View>
-            <View style={[styles.confidenceBadge, { backgroundColor: conditionColor(result.condition.overall) + '22' }]}>
-              <Text style={[styles.confidenceText, { color: conditionColor(result.condition.overall) }]}>
-                {result.confidence}%
-              </Text>
-            </View>
-          </View>
-
-          <View style={[styles.conditionBadge, { backgroundColor: conditionColor(result.condition.overall) + '22' }]}>
-            <Text style={[styles.conditionText, { color: conditionColor(result.condition.overall) }]}>
-              {result.condition.overall === '良好' ? '✓' : result.condition.overall === '注意' ? '⚠' : '❗'}{' '}
-              {result.condition.overall}
-              {result.condition.disease ? `  病気: ${result.condition.disease}` : ''}
-            </Text>
-          </View>
-
-          {result.condition.issues.length > 0 && (
-            <View style={styles.issuesBox}>
-              {result.condition.issues.map((issue, i) => (
-                <Text key={i} style={styles.issueText}>• {issue}</Text>
-              ))}
+      {/* ── Image picker ── */}
+      <View style={styles.card}>
+        <TouchableOpacity style={styles.imageBox} onPress={handleCamera} activeOpacity={0.85}>
+          {imageUri ? (
+            <Image source={{ uri: imageUri }} style={styles.previewImage} resizeMode="cover" />
+          ) : (
+            <View style={styles.imagePlaceholder}>
+              <Text style={styles.cameraIcon}>📷</Text>
+              <Text style={styles.placeholderTitle}>タップして撮影</Text>
+              <Text style={styles.placeholderSub}>または下のボタンでギャラリーから選択</Text>
             </View>
           )}
-
-          {result.care_advice.immediate_action && (
-            <View style={styles.urgentBox}>
-              <Text style={styles.urgentText}>🚨 今すぐ：{result.care_advice.immediate_action}</Text>
+          {imageUri && (
+            <View style={styles.imageOverlay}>
+              <Text style={styles.imageOverlayText}>📷 再撮影</Text>
             </View>
           )}
+        </TouchableOpacity>
 
-          <View style={styles.adviceSection}>
-            <Text style={styles.adviceTitle}>ケアアドバイス</Text>
-            <AdviceRow icon="💧" label="水やり" text={result.care_advice.watering} />
-            <AdviceRow icon="☀️" label="日照" text={result.care_advice.sunlight} />
-            <AdviceRow icon="🌱" label="肥料" text={result.care_advice.fertilizer} />
+        <TouchableOpacity style={styles.galleryBtn} onPress={handleGallery} activeOpacity={0.8}>
+          <Text style={styles.galleryBtnText}>🖼  ギャラリーから選択</Text>
+        </TouchableOpacity>
+
+        {/* Location toggle */}
+        <View style={styles.toggleRow}>
+          <View style={styles.toggleInfo}>
+            <Text style={styles.toggleLabel}>撮影場所</Text>
+            <Text style={styles.toggleValue}>{location}</Text>
           </View>
-
-          <View style={styles.seasonTipBox}>
-            <Text style={styles.seasonTipText}>🍃 {result.season_tip}</Text>
+          <View style={styles.togglePill}>
+            <Text style={[styles.toggleOption, location === '室内' && styles.toggleOptionActive]}>室内</Text>
+            <Switch
+              value={location === '屋外'}
+              onValueChange={v => setLocation(v ? '屋外' : '室内')}
+              trackColor={{ false: '#D1FAE5', true: '#A7F3D0' }}
+              thumbColor={location === '屋外' ? '#059669' : '#10B981'}
+              style={{ transform: [{ scaleX: 0.85 }, { scaleY: 0.85 }] }}
+            />
+            <Text style={[styles.toggleOption, location === '屋外' && styles.toggleOptionActive]}>屋外</Text>
           </View>
         </View>
+
+        {/* Diagnose button */}
+        <TouchableOpacity
+          style={[styles.diagnoseBtn, (!imageUri || loading) && styles.diagnoseBtnDisabled]}
+          onPress={handleDiagnose}
+          disabled={!imageUri || loading}
+          activeOpacity={0.85}
+        >
+          {loading
+            ? <ActivityIndicator color="#fff" size="small" />
+            : <Text style={styles.diagnoseBtnText}>🔍  診断する</Text>
+          }
+        </TouchableOpacity>
+      </View>
+
+      {/* ── Retake message ── */}
+      {needsRetake && (
+        <View style={styles.retakeCard}>
+          <Text style={styles.retakeIcon}>⚠️</Text>
+          <Text style={styles.retakeText}>より鮮明な写真で再撮影してください</Text>
+        </View>
       )}
+
+      {/* ── Result card ── */}
+      {result && (
+        <View style={styles.resultCard}>
+          {/* Plant name header */}
+          <View style={styles.resultHeader}>
+            <Text style={styles.resultPlantIcon}>🌱</Text>
+            <View style={styles.resultNameWrap}>
+              <Text style={styles.resultName}>{result.plant_name}</Text>
+              {result.scientific_name && (
+                <Text style={styles.resultScientific}>{result.scientific_name}</Text>
+              )}
+            </View>
+            {result.condition_overall && (() => {
+              const c = conditionColor(result.condition_overall)
+              return (
+                <View style={[styles.conditionBadge, { backgroundColor: c.bg }]}>
+                  <View style={[styles.conditionDot, { backgroundColor: c.dot }]} />
+                  <Text style={[styles.conditionText, { color: c.text }]}>{result.condition_overall}</Text>
+                </View>
+              )
+            })()}
+          </View>
+
+          {/* Diagnosis detail */}
+          {result.condition_detail && (
+            <View style={styles.detailBox}>
+              <Text style={styles.detailLabel}>診断結果</Text>
+              <Text style={styles.detailText}>{result.condition_detail}</Text>
+            </View>
+          )}
+
+          {/* Advice cards */}
+          {(result.watering || result.sunlight || result.fertilizer) && (
+            <>
+              <View style={styles.sectionDivider} />
+              <Text style={styles.adviceTitle}>お手入れアドバイス</Text>
+              <View style={styles.adviceGrid}>
+                {result.watering && (
+                  <AdviceCard icon="💧" label="水やり" value={result.watering} accent="#3B82F6" />
+                )}
+                {result.sunlight && (
+                  <AdviceCard icon="☀️" label="日当たり" value={result.sunlight} accent="#F59E0B" />
+                )}
+                {result.fertilizer && (
+                  <AdviceCard icon="🌿" label="肥料" value={result.fertilizer} accent="#10B981" />
+                )}
+              </View>
+            </>
+          )}
+        </View>
+      )}
+
     </ScrollView>
   )
 }
 
-function AdviceRow({ icon, label, text }: { icon: string; label: string; text: string }) {
-  return (
-    <View style={adviceStyles.row}>
-      <Text style={adviceStyles.icon}>{icon}</Text>
-      <View style={adviceStyles.content}>
-        <Text style={adviceStyles.label}>{label}</Text>
-        <Text style={adviceStyles.text}>{text}</Text>
-      </View>
-    </View>
-  )
-}
-
-const adviceStyles = StyleSheet.create({
-  row: { flexDirection: 'row', marginBottom: 10, alignItems: 'flex-start' },
-  icon: { fontSize: 18, marginRight: 10, marginTop: 2 },
-  content: { flex: 1 },
-  label: { fontSize: 12, fontWeight: '600', color: '#666', marginBottom: 2 },
-  text: { fontSize: 14, color: '#333', lineHeight: 20 },
-})
+// ─── Styles ───────────────────────────────────────────────────────────────────
+const GREEN = '#0B8A5D'
+const GREEN_LIGHT = '#D1FAE5'
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F8FBF8' },
-  content: { padding: 20, paddingBottom: 40 },
-  title: { fontSize: 24, fontWeight: '700', color: '#1D6A4A', marginBottom: 20, textAlign: 'center' },
-  cameraBox: {
-    width: '100%', height: 220, borderRadius: 16,
-    backgroundColor: '#E8F5EE', borderWidth: 1.5, borderColor: '#9FE1CB',
-    borderStyle: 'dashed', overflow: 'hidden',
-    justifyContent: 'center', alignItems: 'center', marginBottom: 12,
+  root:   { flex: 1, backgroundColor: '#F0F9F4' },
+  scroll: { padding: 20, paddingBottom: 48 },
+
+  // Header
+  header:     { marginBottom: 20 },
+  headerTitle:{ fontSize: 26, fontWeight: '800', color: '#064E3B', letterSpacing: -0.5 },
+  headerSub:  { fontSize: 13, color: '#6EE7B7', marginTop: 3, fontWeight: '500' },
+
+  // Main card
+  card: {
+    backgroundColor: '#fff',
+    borderRadius: 20,
+    padding: 20,
+    marginBottom: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 16,
+    elevation: 4,
   },
-  preview: { width: '100%', height: '100%' },
-  cameraHint: { fontSize: 14, color: '#2D8F64' },
+
+  // Image box
+  imageBox: {
+    height: 220,
+    borderRadius: 14,
+    borderWidth: 1.5,
+    borderStyle: 'dashed',
+    borderColor: '#A7F3D0',
+    backgroundColor: '#F0FDF4',
+    overflow: 'hidden',
+    marginBottom: 14,
+    position: 'relative',
+  },
+  previewImage: { width: '100%', height: '100%' },
+  imageOverlay: {
+    position: 'absolute', bottom: 0, left: 0, right: 0,
+    backgroundColor: 'rgba(0,0,0,0.4)',
+    paddingVertical: 8, alignItems: 'center',
+  },
+  imageOverlayText: { color: '#fff', fontSize: 13, fontWeight: '600' },
+  imagePlaceholder: {
+    flex: 1, alignItems: 'center', justifyContent: 'center', gap: 6,
+  },
+  cameraIcon:       { fontSize: 40, marginBottom: 4 },
+  placeholderTitle: { fontSize: 15, fontWeight: '700', color: '#065F46' },
+  placeholderSub:   { fontSize: 12, color: '#6EE7B7', textAlign: 'center', paddingHorizontal: 24 },
+
+  // Gallery button
   galleryBtn: {
-    alignSelf: 'center', paddingVertical: 8, paddingHorizontal: 20,
-    borderRadius: 20, borderWidth: 1, borderColor: '#9FE1CB', marginBottom: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 11,
+    borderRadius: 12,
+    borderWidth: 1.5,
+    borderColor: '#A7F3D0',
+    backgroundColor: '#F0FDF4',
+    marginBottom: 16,
   },
-  galleryBtnText: { fontSize: 13, color: '#1D9E75' },
-  locationRow: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    backgroundColor: '#fff', borderRadius: 12, padding: 14, marginBottom: 16,
-    borderWidth: 0.5, borderColor: '#ddd',
+  galleryBtnText: { fontSize: 14, fontWeight: '600', color: '#065F46' },
+
+  // Location toggle
+  toggleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 18,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    backgroundColor: '#F8FFFE',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#D1FAE5',
   },
-  locationLabel: { fontSize: 14, color: '#444' },
+  toggleInfo:  {},
+  toggleLabel: { fontSize: 11, color: '#6B7280', fontWeight: '500', marginBottom: 2 },
+  toggleValue: { fontSize: 15, fontWeight: '700', color: '#064E3B' },
+  togglePill:  { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  toggleOption: { fontSize: 12, color: '#9CA3AF', fontWeight: '500' },
+  toggleOptionActive: { color: GREEN, fontWeight: '700' },
+
+  // Diagnose button
   diagnoseBtn: {
-    backgroundColor: '#1D9E75', borderRadius: 14,
-    paddingVertical: 16, alignItems: 'center', marginBottom: 20,
+    backgroundColor: GREEN,
+    paddingVertical: 15,
+    borderRadius: 14,
+    alignItems: 'center',
+    shadowColor: GREEN,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 10,
+    elevation: 6,
   },
-  diagnoseBtnDisabled: { backgroundColor: '#9FE1CB' },
-  diagnoseBtnText: { color: '#fff', fontSize: 16, fontWeight: '700' },
+  diagnoseBtnDisabled: {
+    backgroundColor: '#9CA3AF',
+    shadowOpacity: 0,
+    elevation: 0,
+  },
+  diagnoseBtnText: { color: '#fff', fontSize: 16, fontWeight: '700', letterSpacing: 0.3 },
+
+  // Retake card
+  retakeCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    backgroundColor: '#FEF3C7',
+    borderWidth: 1,
+    borderColor: '#FDE68A',
+    borderRadius: 14,
+    padding: 14,
+    marginBottom: 16,
+  },
+  retakeIcon: { fontSize: 20 },
+  retakeText: { flex: 1, fontSize: 13, color: '#92400E', fontWeight: '500', lineHeight: 19 },
+
+  // Result card
   resultCard: {
-    backgroundColor: '#fff', borderRadius: 16, padding: 20,
-    borderWidth: 0.5, borderColor: '#ddd',
+    backgroundColor: '#fff',
+    borderRadius: 20,
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 16,
+    elevation: 4,
   },
-  resultHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 },
-  plantName: { fontSize: 22, fontWeight: '700', color: '#1D3A2A' },
-  scientificName: { fontSize: 13, color: '#666', fontStyle: 'italic', marginTop: 2 },
-  family: { fontSize: 12, color: '#999', marginTop: 2 },
-  confidenceBadge: { borderRadius: 10, paddingHorizontal: 12, paddingVertical: 6 },
-  confidenceText: { fontSize: 18, fontWeight: '700' },
-  conditionBadge: { borderRadius: 8, padding: 10, marginBottom: 10 },
-  conditionText: { fontSize: 14, fontWeight: '600' },
-  issuesBox: { backgroundColor: '#FFF8E7', borderRadius: 8, padding: 10, marginBottom: 10 },
-  issueText: { fontSize: 13, color: '#8A5C00', marginBottom: 3 },
-  urgentBox: { backgroundColor: '#FDECEA', borderRadius: 8, padding: 10, marginBottom: 12 },
-  urgentText: { fontSize: 13, color: '#A32D2D', fontWeight: '600' },
-  adviceSection: { borderTopWidth: 0.5, borderColor: '#eee', paddingTop: 14, marginTop: 4, marginBottom: 10 },
-  adviceTitle: { fontSize: 14, fontWeight: '700', color: '#333', marginBottom: 12 },
-  seasonTipBox: { backgroundColor: '#EEF8F3', borderRadius: 8, padding: 10 },
-  seasonTipText: { fontSize: 13, color: '#1D6A4A', lineHeight: 20 },
+  resultHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    backgroundColor: '#F0FDF4',
+    padding: 18,
+    borderBottomWidth: 1,
+    borderBottomColor: '#D1FAE5',
+  },
+  resultPlantIcon: { fontSize: 32 },
+  resultNameWrap:  { flex: 1 },
+  resultName:      { fontSize: 18, fontWeight: '800', color: '#064E3B' },
+  resultScientific:{ fontSize: 12, color: '#6EE7B7', fontStyle: 'italic', marginTop: 2 },
+  conditionBadge:  {
+    flexDirection: 'row', alignItems: 'center', gap: 5,
+    paddingHorizontal: 10, paddingVertical: 5,
+    borderRadius: 20,
+  },
+  conditionDot:   { width: 6, height: 6, borderRadius: 3 },
+  conditionText:  { fontSize: 12, fontWeight: '700' },
+
+  // Detail
+  detailBox: { padding: 18, paddingBottom: 4 },
+  detailLabel: { fontSize: 11, color: '#9CA3AF', fontWeight: '600', letterSpacing: 0.5, marginBottom: 6, textTransform: 'uppercase' },
+  detailText:  { fontSize: 14, color: '#374151', lineHeight: 22 },
+
+  // Advice
+  sectionDivider: { height: 1, backgroundColor: '#F3F4F6', marginHorizontal: 18 },
+  adviceTitle: {
+    fontSize: 13, fontWeight: '700', color: '#9CA3AF',
+    letterSpacing: 0.5, textTransform: 'uppercase',
+    paddingHorizontal: 18, paddingTop: 16, paddingBottom: 12,
+  },
+  adviceGrid: {
+    flexDirection: 'row', flexWrap: 'wrap',
+    paddingHorizontal: 14, paddingBottom: 18, gap: 10,
+  },
+})
+
+const adviceStyles = StyleSheet.create({
+  card: {
+    flex: 1, minWidth: 90,
+    backgroundColor: '#F9FAFB',
+    borderRadius: 12,
+    padding: 12,
+    borderTopWidth: 3,
+    alignItems: 'flex-start',
+    gap: 4,
+  },
+  icon:  { fontSize: 20, marginBottom: 2 },
+  label: { fontSize: 10, color: '#9CA3AF', fontWeight: '600', letterSpacing: 0.3, textTransform: 'uppercase' },
+  value: { fontSize: 13, color: '#1F2937', fontWeight: '600', lineHeight: 18 },
 })
